@@ -1,0 +1,127 @@
+.course-bar {
+    width: 420px;
+    background: #ffffff;
+    border: 1px solid #dde3ed;
+    border-left: 4px solid #2563eb;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+    overflow: hidden;
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    user-select: none;
+}
+
+.course-bar:hover {
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.15);
+    border-left-color: #1d4ed8;
+}
+
+.course-bar.open {
+    border-left-color: #1d4ed8;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.15);
+}
+
+/* Header row */
+.course-bar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    gap: 12px;
+}
+
+.course-bar-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.course-bar-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #111827;
+    letter-spacing: -0.01em;
+}
+
+.course-bar-grade {
+    font-size: 12px;
+    font-weight: 500;
+    color: #ffffff;
+    background: #2563eb;
+    border-radius: 4px;
+    padding: 2px 8px;
+    display: inline-block;
+    width: fit-content;
+}
+
+/* Chevron icon */
+.course-bar-chevron {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: #6b7280;
+    transition: transform 0.2s ease, color 0.15s ease;
+}
+
+.course-bar.open .course-bar-chevron {
+    transform: rotate(180deg);
+    color: #2563eb;
+}
+
+/* Topics section */
+.course-bar-topics {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease, border-color 0.25s ease;
+    background: #f8fafc;
+    border-top: 1px solid transparent;
+}
+
+.course-bar.open .course-bar-topics {
+    max-height: 400px;
+    border-top-color: #dde3ed;
+}
+
+.course-bar-topics-inner {
+    padding: 12px 16px 14px 16px;
+    transform: translateY(-100%);
+    transition: transform 0.25s ease;
+}
+
+.course-bar.open .course-bar-topics-inner {
+    transform: translateY(0);
+}
+
+.course-bar-topics ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.course-bar-topics li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: #374151;
+}
+
+.course-bar-topics li::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #2563eb;
+    flex-shrink: 0;
+}
+
+.course-bar-topics-empty {
+    font-size: 13px;
+    color: #9ca3af;
+    font-style: italic;
+}
