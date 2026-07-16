@@ -30,6 +30,11 @@ function MathProblem() {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
       const result = await response.json();
+      if (result.no_topics) {
+        setProblem('no_topics');
+        setSolution(null);
+        return;
+      }
       setProblem(result.problem);
       setSolution(result.solution?.replace(/\$/g, ''));
     } catch (err) {
@@ -41,6 +46,16 @@ function MathProblem() {
   }, []);
 
   if (error) return <div>Error: {error}</div>;
+
+  if (problem === null && solution === null) return null;
+
+  if (problem === 'no_topics') {
+    return (
+      <div className="math-problem-card">
+        <span className="math-problem-display">Select topics from the Courses page to get started.</span>
+      </div>
+    );
+  }
 
   return (
     <div className="math-problem-card">
