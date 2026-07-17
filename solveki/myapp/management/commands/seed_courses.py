@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from myapp.models import Course, Topic
 
 CURRICULUM = [
-    ("Kindergarten", 0, [
+    ("Grade 1", 1, [
         "Addition of two numbers",
         "Subtraction of two numbers",
     ]),
@@ -92,7 +92,6 @@ CURRICULUM = [
         "Arithmetic Progression Sum",
         "Arithmetic Progression Term",
         "Geometric Progression",
-        "Mean, Standard Deviation and Variance",
     ]),
     ("Geometry", 10, [
         "Distance between 2 points",
@@ -121,6 +120,9 @@ CURRICULUM = [
         "Union, Intersection, Difference of Two Sets",
         "Combinations of Objects",
         "Permutations",
+    ]),
+    ("Statistical Reasoning", 12, [
+        "Mean, Standard Deviation and Variance",
         "Conditional Probability",
         "Binomial distribution",
         "Confidence interval For sample S",
@@ -134,7 +136,7 @@ CURRICULUM = [
         "Euclidian norm or L2 norm of a vector",
         "Complex to polar form",
     ]),
-    ("AP Calculus", 13, [
+    ("AP Calculus", 12, [
         "Power Rule Differentiation",
         "Power Rule Integration",
         "Definite Integral of Quadratic Equation",
