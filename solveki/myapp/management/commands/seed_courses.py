@@ -84,6 +84,7 @@ CURRICULUM = [
         "Expanding Factored Binomial",
         "Factoring Quadratic",
         "Quadratic Equation",
+        "Vertex of a Quadratic in Vertex Form",
         "Intersection of two lines",
         "Equation of Line from Two Points",
         "Equation of line from two points",
