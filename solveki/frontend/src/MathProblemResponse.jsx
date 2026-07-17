@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 function MathProblemResponse(props) {
     const [response, setResponse] = useState("");
     const [boxColor, setBoxColor] = useState('black');
+    const [showIncorrect, setShowIncorrect] = useState(false);
     function updateResponse(event) {
         setResponse(event.target.value);
     }
@@ -20,6 +21,8 @@ function MathProblemResponse(props) {
             console.log('incorrect response');
             console.log(props.solution);
             setBoxColor('red');
+            setShowIncorrect(true);
+            setTimeout(() => setShowIncorrect(false), 900);
         }
     }
     function inputKeyPress(event){
@@ -35,8 +38,11 @@ function MathProblemResponse(props) {
                 onChange={updateResponse}
                 onKeyPress={inputKeyPress}
             />
-            <button className="math-problem-submit" onClick={submitResponse}>
-                Submit
+            <button
+                className={`math-problem-submit${showIncorrect ? ' math-problem-submit-incorrect' : ''}`}
+                onClick={submitResponse}
+            >
+                {showIncorrect ? 'Incorrect!' : 'Submit'}
             </button>
         </div>
     );
