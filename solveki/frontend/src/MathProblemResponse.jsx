@@ -4,6 +4,12 @@ function MathProblemResponse(props) {
     const [response, setResponse] = useState("");
     const [boxColor, setBoxColor] = useState('black');
     const [showIncorrect, setShowIncorrect] = useState(false);
+    useEffect(() => {
+        // Reset the box state whenever a new problem loads.
+        setResponse("");
+        setBoxColor('black');
+        setShowIncorrect(false);
+    }, [props.solution]);
     function updateResponse(event) {
         setResponse(event.target.value);
     }
@@ -20,9 +26,11 @@ function MathProblemResponse(props) {
         }else{
             console.log('incorrect response');
             console.log(props.solution);
+            setResponse("");
             setBoxColor('red');
             setShowIncorrect(true);
-            setTimeout(() => setShowIncorrect(false), 900);
+            setTimeout(() => setShowIncorrect(false), 1500);
+            props.onIncorrect?.();
         }
     }
     function inputKeyPress(event){

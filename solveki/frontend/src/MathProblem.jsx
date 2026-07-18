@@ -24,6 +24,8 @@ function MathProblem() {
   const [solution, setSolution] = useState(null);
   const [error, setError] = useState(null);
   const [showCorrect, setShowCorrect] = useState(false);
+  const [attempt, setAttempt] = useState(1);
+  const MAX_ATTEMPTS = 2;
   const fetchMathProblem = async () => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/problem/`);
@@ -38,6 +40,7 @@ function MathProblem() {
       }
       setProblem(result.problem);
       setSolution(result.solution?.replace(/\$/g, ''));
+      setAttempt(1);
     } catch (err) {
       setError(err.message);
     }
@@ -52,6 +55,15 @@ function MathProblem() {
       fetchMathProblem();
       setShowCorrect(false);
     }, 900);
+  };
+
+  const handleIncorrect = () => {
+    if (attempt < MAX_ATTEMPTS) {
+      setAttempt(attempt + 1);
+    } else {
+      // Out of attempts: move on to the next problem.
+      fetchMathProblem();
+    }
   };
 
   if (error) return <div>Error: {error}</div>;
@@ -80,8 +92,9 @@ function MathProblem() {
 
   return (
     <div className="math-problem-card">
+      <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
       <MathProblemDisplay problem={renderMixedLatex(problem)} />
-      <MathProblemResponse solution={solution} onCorrect={handleCorrect} />
+      <MathProblemResponse solution={solution} onCorrect={handleCorrect} onIncorrect={handleIncorrect} />
     </div>
   );
 }
