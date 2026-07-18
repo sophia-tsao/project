@@ -15,8 +15,23 @@
     gap: 16px;
 }
 
+.math-problem-meta {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.math-problem-progress {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2563eb;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .math-problem-attempt {
-    align-self: flex-start;
     font-size: 12px;
     font-weight: 600;
     color: #6b7280;

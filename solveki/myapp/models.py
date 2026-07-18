@@ -18,3 +18,30 @@ class Topic(models.Model):
 
     def __str__(self):
         return self.topic_name
+
+class Settings(models.Model):
+    """Global, single-row user settings."""
+    language = models.CharField(default='en', max_length=10)
+    questions_per_day = models.IntegerField(default=10)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def save(self, *args, **kwargs):
+        # Enforce a single settings row.
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Settings"
+
+class DailyDeck(models.Model):
+    """A set of problems generated for a single day."""
+    date = models.DateField(unique=True)
+    problems = models.JSONField(default=list)
+    current_index = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"Deck {self.date} ({self.current_index}/{len(self.problems)})"

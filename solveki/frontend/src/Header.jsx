@@ -8,6 +8,7 @@ function Header(props) {
             <nav className="header-nav">
                 <button onClick={() => props.linkClicked("math")}>Practice</button>
                 <button onClick={() => props.linkClicked("courses")}>Available Courses</button>
+                <button onClick={() => props.linkClicked("settings")}>Settings</button>
             </nav>
         </header>
     );

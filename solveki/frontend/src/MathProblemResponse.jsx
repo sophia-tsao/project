@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function MathProblemResponse(props) {
     const [response, setResponse] = useState("");
     const [boxColor, setBoxColor] = useState('black');
     const [showIncorrect, setShowIncorrect] = useState(false);
+    const inputRef = useRef(null);
     useEffect(() => {
         // Reset the box state whenever a new problem loads.
         setResponse("");
         setBoxColor('black');
         setShowIncorrect(false);
+        // Focus the answer box so the user can type right away.
+        inputRef.current?.focus();
     }, [props.solution]);
     function updateResponse(event) {
         setResponse(event.target.value);
@@ -41,6 +44,7 @@ function MathProblemResponse(props) {
     return (
         <div style={{width: '100%', display: 'flex', gap: '8px'}}>
             <input
+                ref={inputRef}
                 className={`math-problem-input${boxColor === 'red' ? ' incorrect' : ''}`}
                 value={response}
                 onChange={updateResponse}

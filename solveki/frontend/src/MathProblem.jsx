@@ -22,37 +22,66 @@ function renderMixedLatex(str) {
 function MathProblem() {
   const [problem, setProblem] = useState(null);
   const [solution, setSolution] = useState(null);
+  const [currentNumber, setCurrentNumber] = useState(null);
+  const [total, setTotal] = useState(null);
+  const [status, setStatus] = useState('loading'); // loading | active | no_topics | completed
   const [error, setError] = useState(null);
   const [showCorrect, setShowCorrect] = useState(false);
   const [attempt, setAttempt] = useState(1);
   const MAX_ATTEMPTS = 2;
-  const fetchMathProblem = async () => {
+
+  const applyDeck = (result) => {
+    if (result.no_topics) {
+      setStatus('no_topics');
+      return;
+    }
+    if (result.completed) {
+      setTotal(result.total ?? total);
+      setStatus('completed');
+      return;
+    }
+    setProblem(result.problem);
+    setSolution(result.solution?.replace(/\$/g, ''));
+    setCurrentNumber(result.current_number);
+    setTotal(result.total);
+    setAttempt(1);
+    setStatus('active');
+  };
+
+  const fetchDeck = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/problem/`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/deck/`);
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
-      const result = await response.json();
-      if (result.no_topics) {
-        setProblem('no_topics');
-        setSolution(null);
-        return;
-      }
-      setProblem(result.problem);
-      setSolution(result.solution?.replace(/\$/g, ''));
-      setAttempt(1);
+      applyDeck(await response.json());
     } catch (err) {
       setError(err.message);
     }
   };
+
+  const advanceDeck = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/deck/advance/`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      applyDeck(await response.json());
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   useEffect(() => {
-    fetchMathProblem();
+    fetchDeck();
   }, []);
 
   const handleCorrect = () => {
     setShowCorrect(true);
     setTimeout(() => {
-      fetchMathProblem();
+      advanceDeck();
       setShowCorrect(false);
     }, 900);
   };
@@ -62,18 +91,28 @@ function MathProblem() {
       setAttempt(attempt + 1);
     } else {
       // Out of attempts: move on to the next problem.
-      fetchMathProblem();
+      advanceDeck();
     }
   };
 
   if (error) return <div>Error: {error}</div>;
 
-  if (problem === null && solution === null) return null;
+  if (status === 'loading') return null;
 
-  if (problem === 'no_topics') {
+  if (status === 'no_topics') {
     return (
       <div className="math-problem-card">
         <span className="math-problem-display">Select topics from the Courses page to get started.</span>
+      </div>
+    );
+  }
+
+  if (status === 'completed') {
+    return (
+      <div className="math-problem-card">
+        <span className="math-problem-display">
+          You've finished all {total} question{total === 1 ? '' : 's'} for today. Come back tomorrow for a new set!
+        </span>
       </div>
     );
   }
@@ -92,7 +131,10 @@ function MathProblem() {
 
   return (
     <div className="math-problem-card">
-      <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
+      <div className="math-problem-meta">
+        <span className="math-problem-progress">{currentNumber} of {total} questions</span>
+        <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
+      </div>
       <MathProblemDisplay problem={renderMixedLatex(problem)} />
       <MathProblemResponse solution={solution} onCorrect={handleCorrect} onIncorrect={handleIncorrect} />
     </div>
