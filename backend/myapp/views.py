@@ -296,6 +296,11 @@ def settings_view(request):
                 return JsonResponse({"error": "questions_per_day must be at least 1"}, status=400)
             settings.questions_per_day = count
         settings.save()
+        # Apply a larger card count to today's deck immediately so the change
+        # takes effect on save, not just tomorrow. We only ever grow the deck:
+        # problems the student has already worked through stay put, and a
+        # smaller count leaves today's deck untouched (it applies next day).
+        _grow_today_deck(request.user, settings.questions_per_day)
     return JsonResponse(_serialize_settings(settings))
 
 
@@ -339,6 +344,28 @@ def _get_or_create_today_deck(user):
             deck.current_index = 0
             deck.save(update_fields=["problems", "current_index"])
     return deck
+
+
+def _grow_today_deck(user, count):
+    """Grow today's deck to `count` problems if it's currently smaller.
+
+    Appends freshly generated problems to the end so the student's progress
+    (already-answered problems and `current_index`) is preserved. Never shrinks
+    the deck: a smaller `count` is left to take effect when the next day's deck
+    is built. Does nothing if there's no deck for today yet — that deck will be
+    built at the new count on first access.
+    """
+    today = timezone.localdate()
+    deck = DailyDeck.objects.filter(user=user, date=today).first()
+    if deck is None:
+        return
+    missing = count - len(deck.problems)
+    if missing <= 0:
+        return
+    extra = _build_deck(user, missing)
+    if extra:
+        deck.problems = deck.problems + extra
+        deck.save(update_fields=["problems"])
 
 
 def _deck_payload(deck):
