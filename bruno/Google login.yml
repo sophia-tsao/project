@@ -1,0 +1,22 @@
+info:
+  name: Google login
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{host}}/auth/google/"
+  auth: inherit
+  body: json
+
+body:
+  json: |
+    {
+      "credential": "paste-a-real-google-id-token-here"
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

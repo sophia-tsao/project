@@ -1,0 +1,23 @@
+info:
+  name: Update settings
+  type: http
+  seq: 10
+
+http:
+  method: PATCH
+  url: "{{host}}/settings/"
+  auth: inherit
+  body: json
+
+body:
+  json: |
+    {
+      "language": "en",
+      "questions_per_day": 10
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

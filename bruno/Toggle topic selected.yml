@@ -1,0 +1,22 @@
+info:
+  name: Toggle topic selected
+  type: http
+  seq: 12
+
+http:
+  method: PATCH
+  url: "{{host}}/topics/1/select"
+  auth: inherit
+  body: json
+
+body:
+  json: |
+    {
+      "is_selected": true
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

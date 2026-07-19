@@ -5,9 +5,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings as django_settings
 from django.contrib.auth import login, logout, get_user_model
 from django.utils import timezone
-from mathgenerator import gen_by_name
+import mathgenerator
 import random
 import json
+
+from .generators import LOCAL_GENERATORS
 
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -214,7 +216,15 @@ def _make_problem(user):
     if not generators:
         return None
     name = random.choice(generators)
-    problem, solution = gen_by_name(name)
+    # Prefer our own generators, then fall back to the mathgenerator library.
+    generator = LOCAL_GENERATORS.get(name) or getattr(mathgenerator, name, None)
+    if generator is None:
+        # The stored generator name isn't a real generator (e.g. renamed or
+        # removed by a library upgrade). Treat it as "no problem available"
+        # rather than 500-ing the student. The contract test in
+        # test_generators.py exists to catch this before it ships.
+        return None
+    problem, solution = generator()
 
     # Strip the surrounding LaTeX '$' delimiters so every solution is returned
     # consistently, whether it's an integer, a decimal, or a symbolic answer.

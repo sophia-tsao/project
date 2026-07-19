@@ -1,0 +1,22 @@
+info:
+  name: Set course topics selected
+  type: http
+  seq: 11
+
+http:
+  method: PATCH
+  url: "{{host}}/courses/1/select"
+  auth: inherit
+  body: json
+
+body:
+  json: |
+    {
+      "is_selected": true
+    }
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

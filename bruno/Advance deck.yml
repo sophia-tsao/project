@@ -1,0 +1,15 @@
+info:
+  name: Advance deck
+  type: http
+  seq: 8
+
+http:
+  method: POST
+  url: "{{host}}/deck/advance/"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
