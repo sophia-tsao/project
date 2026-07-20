@@ -472,7 +472,15 @@ def _deck_payload(user, deck):
     # if the deck still holds problems from before the change.
     if not _has_topics(user):
         return {"no_topics": True}
-    total = len(deck.problems)
+    # Present the deck capped to the current setting. Growing the count is
+    # handled when the deck is loaded (extra cards are appended); shrinking it
+    # is applied here at display time, so a smaller `questions_per_day` takes
+    # effect immediately rather than next day. We only cap the view — the extra
+    # cards stay stored, so raising the count back up restores them. Without
+    # this cap, reducing the count after answering more than the new total
+    # would keep showing the old (larger) deck instead of "finished".
+    target = Settings.load(user).questions_per_day
+    total = min(len(deck.problems), target)
     if total == 0:
         return {"no_topics": True}
     if deck.current_index >= total:

@@ -110,3 +110,50 @@ class SettingsDeckResizeTests(TestCase):
         # No deck built for today; saving should not create one.
         self._patch({"questions_per_day": 15})
         self.assertFalse(DailyDeck.objects.filter(user=self.user).exists())
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_decreasing_below_answered_reads_as_finished(self, mock_gen):
+        # Reported bug: build a 15-card deck, answer 11, then lower the count to
+        # 8. The practice page must read as finished (all 8 done), not keep
+        # showing "12 of 15" as though nothing changed.
+        self._patch({"questions_per_day": 15})
+        self.client.get("/deck/")  # build 15-card deck
+        for _ in range(11):
+            self.client.post("/deck/advance/")  # answered 11 of 15
+
+        self._patch({"questions_per_day": 8})
+
+        data = self.client.get("/deck/").json()
+        self.assertTrue(data.get("completed"))
+        self.assertEqual(data["total"], 8)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_decreasing_above_answered_caps_visible_total(self, mock_gen):
+        # Lowering the count to a value still above progress caps the visible
+        # total without losing the student's place.
+        self._patch({"questions_per_day": 15})
+        self.client.get("/deck/")
+        for _ in range(3):
+            self.client.post("/deck/advance/")  # on problem 4 of 15
+
+        self._patch({"questions_per_day": 8})
+
+        data = self.client.get("/deck/").json()
+        self.assertFalse(data.get("completed"))
+        self.assertEqual(data["current_number"], 4)
+        self.assertEqual(data["total"], 8)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_decreasing_then_increasing_restores_stored_cards(self, mock_gen):
+        # The cap is display-only: the extra stored cards survive a decrease, so
+        # bumping the count back up presents them again without regenerating.
+        self._patch({"questions_per_day": 15})
+        self.client.get("/deck/")
+        self._patch({"questions_per_day": 8})
+        self.assertEqual(self.client.get("/deck/").json()["total"], 8)
+
+        self._patch({"questions_per_day": 15})
+
+        deck = DailyDeck.objects.get(user=self.user)
+        self.assertEqual(len(deck.problems), 15)  # never regenerated
+        self.assertEqual(self.client.get("/deck/").json()["total"], 15)
