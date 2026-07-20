@@ -1,5 +1,3 @@
-import { useState, useEffect } from 'react';
-
 function MathProblemDisplay(props) {
     return (
         <div className="math-problem-display">

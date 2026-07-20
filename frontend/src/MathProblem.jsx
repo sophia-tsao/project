@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import './MathProblem.css';
@@ -73,24 +73,25 @@ function MathProblem() {
   const MAX_ATTEMPTS = 2;
 
   // Fire confetti at most once per day, the first time the deck is completed.
-  const maybeCelebrate = () => {
+  const maybeCelebrate = useCallback(() => {
     const key = `solveki-confetti-${new Date().toLocaleDateString('en-CA')}`;
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, '1');
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 3500);
-  };
+  }, []);
 
-  const applyDeck = (result) => {
+  const applyDeck = useCallback((result) => {
     if (result.no_topics) {
       log.debug('Deck has no selected topics');
       setStatus('no_topics');
       return;
     }
     if (result.completed) {
-      log.info(`Deck completed (${result.total ?? total} questions)`);
-      setTotal(result.total ?? total);
+      // Fall back to the last known total when the payload omits it.
+      setTotal((prev) => result.total ?? prev);
       setStatus('completed');
+      log.info('Deck completed');
       maybeCelebrate();
       return;
     }
@@ -101,9 +102,9 @@ function MathProblem() {
     setTotal(result.total);
     setAttempt(1);
     setStatus('active');
-  };
+  }, [maybeCelebrate]);
 
-  const fetchDeck = async () => {
+  const fetchDeck = useCallback(async () => {
     try {
       const response = await apiFetch(`/deck/`);
       if (!response.ok) {
@@ -114,9 +115,9 @@ function MathProblem() {
       log.error('Failed to load deck:', err.message);
       setError(err.message);
     }
-  };
+  }, [applyDeck]);
 
-  const advanceDeck = async () => {
+  const advanceDeck = useCallback(async () => {
     try {
       const response = await apiFetch(`/deck/advance/`, {
         method: 'POST',
@@ -129,11 +130,12 @@ function MathProblem() {
       log.error('Failed to advance deck:', err.message);
       setError(err.message);
     }
-  };
+  }, [applyDeck]);
 
+  // Load the deck once on mount.
   useEffect(() => {
     fetchDeck();
-  }, []);
+  }, [fetchDeck]);
 
   const handleCorrect = () => {
     setShowCorrect(true);
