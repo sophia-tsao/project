@@ -377,22 +377,28 @@ def _regenerate_deck_tail(user):
 
     Problems the student has already worked through (everything before
     `current_index`) are kept; the remaining cards are regenerated from the
-    topics currently selected, preserving the deck's total size and the
-    student's position. This lets a topic toggle take effect immediately —
-    stored problems only carry their text/solution, not the topic they came
-    from, so an individual topic's cards can't be surgically removed; we
-    regenerate the tail instead.
+    topics currently selected, refilling the deck back up to the target count
+    (`questions_per_day`) and preserving the student's position. This lets a
+    topic toggle take effect immediately — stored problems only carry their
+    text/solution, not the topic they came from, so an individual topic's
+    cards can't be surgically removed; we regenerate the tail instead.
+
+    The tail size is derived from the target count rather than the current
+    deck length: a temporary "no topics selected" state (e.g. mid-way through
+    swapping courses) generates an empty tail, and sizing off the shrunken
+    deck would strand the student on a short, already-"finished" deck.
 
     Does nothing if there's no deck for today yet (it'll be built from the
-    current topics on first access) or if the student has already finished
-    today's deck.
+    current topics on first access) or if the student has already answered at
+    least the target number of problems today.
     """
     today = timezone.localdate()
     deck = DailyDeck.objects.filter(user=user, date=today).first()
     if deck is None:
         return
     answered = deck.current_index
-    remaining = len(deck.problems) - answered
+    target = Settings.load(user).questions_per_day
+    remaining = target - answered
     if remaining <= 0:
         return
     new_tail = _build_deck(user, remaining)

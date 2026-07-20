@@ -200,6 +200,36 @@ class TopicToggleDeckRegenerationTests(TestCase):
         self.assertEqual(len(deck.problems), 4)
         self.assertTrue(all(p["solution"] == "2" for p in deck.problems))
 
+    @mock.patch("myapp.views.mathgenerator.subtraction", return_value=("$9-1=$", "$8$"))
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_swapping_courses_via_transient_empty_state_keeps_full_deck(
+        self, mock_add, mock_sub
+    ):
+        # A student works a few cards, then swaps their entire topic set:
+        # deselect the old topic (leaving nothing selected) then select a new
+        # one. The transient no-topics state must not strand them on a short,
+        # already-"finished" deck. Regression for the "finished all 4" bug.
+        select(self.user, self.add_topic)
+        self.client.get("/deck/")  # 4-card deck (questions_per_day=4)
+        self.client.post("/deck/advance/")
+        self.client.post("/deck/advance/")  # answered 2
+
+        self._toggle(self.add_topic.id, False)  # now nothing selected
+        deck = DailyDeck.objects.get(user=self.user)
+        # Tail can't be generated, but the deck isn't permanently shrunk below
+        # what a later reselection can refill.
+        self.assertEqual(deck.current_index, 2)
+
+        self._toggle(self.sub_topic.id, True)  # pick the new topic
+
+        deck.refresh_from_db()
+        self.assertEqual(len(deck.problems), 4)  # refilled to target
+        self.assertEqual(deck.current_index, 2)  # progress preserved
+        data = self.client.get("/deck/").json()
+        self.assertFalse(data.get("completed"))
+        self.assertEqual(data["current_number"], 3)
+        self.assertEqual(data["total"], 4)
+
     @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
     def test_no_deck_yet_is_a_noop(self, mock_add):
         # No deck for today: toggling shouldn't create one.
