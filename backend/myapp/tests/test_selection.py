@@ -3,6 +3,7 @@ import json
 from unittest import mock
 
 from django.test import TestCase, Client
+from django.utils import timezone
 
 from myapp.models import UserTopicSelection, Settings, DailyDeck
 from .factories import make_user, make_course, make_topic, select
@@ -232,6 +233,54 @@ class TopicToggleDeckRegenerationTests(TestCase):
         self.assertFalse(data.get("completed"))
         self.assertEqual(data["current_number"], 3)
         self.assertEqual(data["total"], 4)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_reload_after_deselect_shows_no_topics(self, mock_add):
+        # Reproduces the reported bug: after deselecting everything, reloading
+        # the practice page (a fresh GET /deck/) must show the "pick a topic"
+        # screen, never "finished all N".
+        select(self.user, self.add_topic)
+        self.client.get("/deck/")
+        self.client.post("/deck/advance/")
+        self.client.post("/deck/advance/")  # answered 2 of 4
+
+        self._toggle(self.add_topic.id, False)  # deselect everything
+
+        data = self.client.get("/deck/").json()
+        self.assertTrue(data.get("no_topics"))
+        self.assertFalse(data.get("completed"))
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_reload_reselect_refills_to_target(self, mock_add):
+        # After deselect then reselect, a reload must present a full-size deck,
+        # not a short one that reads as finished.
+        select(self.user, self.add_topic)
+        self.client.get("/deck/")
+        self.client.post("/deck/advance/")  # answered 1 of 4
+        self._toggle(self.add_topic.id, False)
+        self._toggle(self.add_topic.id, True)
+
+        data = self.client.get("/deck/").json()
+        self.assertFalse(data.get("completed"))
+        self.assertEqual(data["total"], 4)
+        self.assertEqual(data["current_number"], 2)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_short_deck_from_earlier_bug_is_healed_on_reload(self, mock_add):
+        # A deck persisted shorter than questions_per_day (e.g. left over from
+        # an earlier truncation bug) must top back up to the target on reload
+        # instead of reporting "finished all <short count>".
+        select(self.user, self.add_topic)
+        DailyDeck.objects.create(
+            user=self.user,
+            date=timezone.localdate(),
+            problems=[{"problem": "old", "solution": "1"}],
+            current_index=1,  # already at the end of this 1-card deck
+        )
+        data = self.client.get("/deck/").json()
+        self.assertFalse(data.get("completed"))
+        self.assertEqual(data["total"], 4)
+        self.assertEqual(data["current_number"], 2)
 
     @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
     def test_no_deck_yet_is_a_noop(self, mock_add):
