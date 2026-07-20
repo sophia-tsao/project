@@ -67,7 +67,9 @@ function MathProblem() {
   const [total, setTotal] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | active | no_topics | completed
   const [error, setError] = useState(null);
-  const [showCorrect, setShowCorrect] = useState(false);
+  const [flipped, setFlipped] = useState(false); // true rotates the card to its back
+  const [result, setResult] = useState('correct'); // 'correct' | 'incorrect' — back-face content
+  const [resultAnswer, setResultAnswer] = useState(null); // solution frozen for the back face
   const [attempt, setAttempt] = useState(1);
   const [showConfetti, setShowConfetti] = useState(false);
   const MAX_ATTEMPTS = 2;
@@ -101,6 +103,7 @@ function MathProblem() {
     setCurrentNumber(result.current_number);
     setTotal(result.total);
     setAttempt(1);
+    setFlipped(false);
     setStatus('active');
   }, [maybeCelebrate]);
 
@@ -167,20 +170,28 @@ function MathProblem() {
     };
   }, [fetchDeck]);
 
+  // Flip the card to reveal the result on its back, then advance once the
+  // student has had a beat to read it. advanceDeck() sets `flipped` back to
+  // false, flipping the fresh problem to its front. We deliberately leave
+  // `result` untouched on the flip back so the back face doesn't flash the
+  // other outcome while it rotates out of view.
   const handleCorrect = () => {
-    setShowCorrect(true);
-    setTimeout(() => {
-      advanceDeck();
-      setShowCorrect(false);
-    }, 900);
+    setResult('correct');
+    setFlipped(true);
+    setTimeout(advanceDeck, 1400);
   };
 
   const handleIncorrect = () => {
     if (attempt < MAX_ATTEMPTS) {
       setAttempt(attempt + 1);
     } else {
-      // Out of attempts: move on to the next problem.
-      advanceDeck();
+      // Out of attempts: flip to show the correct answer, then move on.
+      // Freeze the answer on the back face so it isn't replaced by the next
+      // problem's solution while the card rotates back to the front.
+      setResult('incorrect');
+      setResultAnswer(solution);
+      setFlipped(true);
+      setTimeout(advanceDeck, 1400);
     }
   };
 
@@ -216,31 +227,44 @@ function MathProblem() {
     <div key={i} className={`math-problem-card math-problem-card-behind behind-${i + 1}`} />
   ));
 
-  if (showCorrect) {
-    return (
-      <div className="math-problem-stack">
-        {behindCards}
-        <div className="math-problem-card math-problem-correct">
-          <svg className="math-problem-correct-icon" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="11" stroke="#16a34a" strokeWidth="1.5" />
-            <path d="M7 12.5l3.2 3.2L17 9" stroke="#16a34a" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="math-problem-correct-text">Correct!</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="math-problem-stack">
       {behindCards}
-      <div className="math-problem-card">
-        <div className="math-problem-meta">
-          <span className="math-problem-progress">{currentNumber} of {total} questions</span>
-          <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
+      {/* The flipper rotates 180° to reveal the back face (the result) when
+          `flip` is set. Front holds the problem; back holds the outcome. */}
+      <div className={`math-problem-flipper${flipped ? ' flipped' : ''}`}>
+        <div className="math-problem-card math-problem-face math-problem-face-front">
+          <div className="math-problem-meta">
+            <span className="math-problem-progress">{currentNumber} of {total} questions</span>
+            <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
+          </div>
+          <MathProblemDisplay problem={renderMixedLatex(problem)} />
+          <MathProblemResponse solution={solution} onCorrect={handleCorrect} onIncorrect={handleIncorrect} />
         </div>
-        <MathProblemDisplay problem={renderMixedLatex(problem)} />
-        <MathProblemResponse solution={solution} onCorrect={handleCorrect} onIncorrect={handleIncorrect} />
+        <div
+          className={`math-problem-card math-problem-face math-problem-face-back ${
+            result === 'incorrect' ? 'math-problem-incorrect' : 'math-problem-correct'
+          }`}
+        >
+          {result === 'incorrect' ? (
+            <>
+              <svg className="math-problem-result-icon" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="11" stroke="#dc2626" strokeWidth="1.5" />
+                <path d="M8 8l8 8M16 8l-8 8" stroke="#dc2626" strokeWidth="1.75" strokeLinecap="round" />
+              </svg>
+              <span className="math-problem-incorrect-text">Incorrect...</span>
+              <span className="math-problem-answer">The answer is {resultAnswer}</span>
+            </>
+          ) : (
+            <>
+              <svg className="math-problem-result-icon" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="11" stroke="#16a34a" strokeWidth="1.5" />
+                <path d="M7 12.5l3.2 3.2L17 9" stroke="#16a34a" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="math-problem-correct-text">Correct!</span>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

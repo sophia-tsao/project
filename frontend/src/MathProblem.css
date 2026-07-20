@@ -4,6 +4,8 @@
     margin: 48px auto 0;
     /* Room above the front card for the peeking cards behind it. */
     padding-top: 30px;
+    /* Perspective for the front card's 3D flip. */
+    perspective: 1400px;
 }
 
 .math-problem-card {
@@ -163,35 +165,70 @@
     }
 }
 
-.math-problem-correct {
-    border-left-color: #16a34a;
-    flex-direction: row;
-    justify-content: center;
-    animation: math-problem-correct-in 0.25s ease;
+/* The flipper occupies the front card's slot and rotates in 3D to reveal its
+   back face. Sits at the same z-index as the front card in the stack. */
+.math-problem-flipper {
+    position: relative;
+    z-index: 3;
+    width: 420px;
+    margin: 0 auto;
+    transform-style: preserve-3d;
+    transition: transform 0.6s cubic-bezier(0.4, 0.15, 0.2, 1);
 }
 
-.math-problem-correct-icon {
-    width: 22px;
-    height: 22px;
+.math-problem-flipper.flipped {
+    transform: rotateY(180deg);
+}
+
+/* Both faces stack in the same spot; only the one facing the viewer shows. */
+.math-problem-face {
+    backface-visibility: hidden;
+}
+
+/* The back face sits on top of the front, pre-rotated so it reads correctly
+   once the flipper turns 180°. */
+.math-problem-face-back {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: rotateY(180deg);
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+}
+
+.math-problem-correct {
+    border-left-color: #16a34a;
+}
+
+.math-problem-incorrect {
+    border-left-color: #dc2626;
+}
+
+.math-problem-result-icon {
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
 }
 
 .math-problem-correct-text {
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 600;
     color: #16a34a;
     letter-spacing: -0.01em;
 }
 
-@keyframes math-problem-correct-in {
-    from {
-        opacity: 0;
-        transform: scale(0.97);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
+.math-problem-incorrect-text {
+    font-size: 20px;
+    font-weight: 600;
+    color: #dc2626;
+    letter-spacing: -0.01em;
+}
+
+.math-problem-answer {
+    font-size: 15px;
+    font-weight: 500;
+    color: #374151;
 }
 
 .confetti {

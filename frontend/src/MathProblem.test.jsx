@@ -157,10 +157,78 @@ describe('MathProblem — answering', () => {
     await user.click(button); // attempt 1 -> 2
     await screen.findByText('Attempt 2 of 2');
     await user.type(input, '98');
-    await user.click(button); // attempt 2 exhausted -> advance
+    await user.click(button); // attempt 2 exhausted -> flip, then advance
 
-    await waitFor(() =>
-      expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', { method: 'POST' }),
+    // The card flips to reveal the correct answer on its back...
+    expect(screen.getByText('Incorrect...')).toBeInTheDocument();
+    expect(screen.getByText('The answer is 4')).toBeInTheDocument();
+
+    // ...then advances once the 1400ms flip has been read. Allow headroom.
+    await waitFor(
+      () =>
+        expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', { method: 'POST' }),
+      { timeout: 2500 },
     );
+  });
+
+  // Regression: the back face used to derive its outcome from the same state
+  // that triggered the flip, so clearing that state on advance re-rendered the
+  // back to the "Correct!" branch — a flash of "Correct!" while the card
+  // rotated back after a wrong answer. The back must keep saying "Incorrect..."
+  // through the flip-back onto the next problem.
+  it('keeps the incorrect result on the back face while flipping to the next problem', async () => {
+    apiFetch
+      .mockResolvedValueOnce(deckResponse(ACTIVE_DECK))
+      .mockResolvedValueOnce(
+        deckResponse({ ...ACTIVE_DECK, solution: '7', current_number: 2 }),
+      );
+    const user = userEvent.setup();
+    render(<MathProblem />);
+    await screen.findByText('1 of 3 questions');
+
+    const input = screen.getByRole('textbox');
+    const button = screen.getByRole('button');
+    await user.type(input, '99');
+    await user.click(button); // attempt 1 -> 2
+    await screen.findByText('Attempt 2 of 2');
+    await user.type(input, '98');
+    await user.click(button); // exhausted -> flip to "Incorrect..."
+
+    expect(screen.getByText('Incorrect...')).toBeInTheDocument();
+
+    // Advance loads the next problem; the back face must not flash "Correct!".
+    await screen.findByText('2 of 3 questions', {}, { timeout: 2500 });
+    expect(screen.queryByText('Correct!')).not.toBeInTheDocument();
+    expect(screen.getByText('Incorrect...')).toBeInTheDocument();
+  });
+
+  // Regression: the back face read the live `solution`, so when advance loaded
+  // the next problem the displayed answer briefly changed to the next
+  // problem's solution mid-flip. The answer is frozen at flip time.
+  it('freezes the revealed answer to the answered problem while flipping away', async () => {
+    apiFetch
+      .mockResolvedValueOnce(deckResponse(ACTIVE_DECK)) // solution '4'
+      .mockResolvedValueOnce(
+        deckResponse({ ...ACTIVE_DECK, solution: '7', current_number: 2 }),
+      );
+    const user = userEvent.setup();
+    render(<MathProblem />);
+    await screen.findByText('1 of 3 questions');
+
+    const input = screen.getByRole('textbox');
+    const button = screen.getByRole('button');
+    await user.type(input, '99');
+    await user.click(button); // attempt 1 -> 2
+    await screen.findByText('Attempt 2 of 2');
+    await user.type(input, '98');
+    await user.click(button); // exhausted -> flip showing "The answer is 4"
+
+    expect(screen.getByText('The answer is 4')).toBeInTheDocument();
+
+    // After the next problem (solution '7') loads, the back face must still
+    // show '4' — never '7'.
+    await screen.findByText('2 of 3 questions', {}, { timeout: 2500 });
+    expect(screen.getByText('The answer is 4')).toBeInTheDocument();
+    expect(screen.queryByText('The answer is 7')).not.toBeInTheDocument();
   });
 });
