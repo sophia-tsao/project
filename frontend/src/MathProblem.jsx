@@ -83,7 +83,12 @@ function MathProblem() {
     setTimeout(() => setShowConfetti(false), 3500);
   }, []);
 
-  const applyDeck = useCallback((result) => {
+  // `celebrate` gates the confetti: only the genuine finish transition (the
+  // student answering the last card, via advanceDeck) should celebrate. A
+  // passive load that happens to land on an already-completed deck — the mount
+  // fetch, or the day-rollover refetch on refocus — must not, or it would burn
+  // the once-per-day confetti token and leave the real finish silent.
+  const applyDeck = useCallback((result, { celebrate = false } = {}) => {
     if (result.no_topics) {
       log.debug('Deck has no selected topics');
       setStatus('no_topics');
@@ -94,7 +99,7 @@ function MathProblem() {
       setTotal((prev) => result.total ?? prev);
       setStatus('completed');
       log.info('Deck completed');
-      maybeCelebrate();
+      if (celebrate) maybeCelebrate();
       return;
     }
     log.debug(`Showing question ${result.current_number} of ${result.total}`);
@@ -130,7 +135,9 @@ function MathProblem() {
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
-      applyDeck(await response.json());
+      // Reaching `completed` here means the student just answered the last
+      // card — the one moment worth celebrating.
+      applyDeck(await response.json(), { celebrate: true });
     } catch (err) {
       log.error('Failed to advance deck:', err.message);
       setError(err.message);

@@ -232,3 +232,91 @@ describe('MathProblem — answering', () => {
     expect(screen.queryByText('The answer is 7')).not.toBeInTheDocument();
   });
 });
+
+const CONFETTI_KEY = 'solveki-confetti-2026-07-20';
+
+describe('MathProblem — completion confetti', () => {
+  it('fires confetti when the student answers the last card', async () => {
+    const user = userEvent.setup();
+    apiFetch
+      .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, total: 1 }))
+      .mockResolvedValueOnce(deckResponse({ completed: true, total: 1 }));
+
+    const { container } = render(<MathProblem />);
+    await screen.findByText('1 of 1 questions');
+
+    await user.type(screen.getByRole('textbox'), '4');
+    await user.click(screen.getByRole('button'));
+
+    await screen.findByText(/You've finished all 1 question/, {}, { timeout: 2500 });
+    expect(container.querySelector('.confetti')).toBeInTheDocument();
+  });
+
+  // Regression: maybeCelebrate ran on *every* transition into `completed`,
+  // including a passive load that lands on an already-finished deck (the mount
+  // fetch, or the day-rollover refetch on refocus). That silently burned the
+  // once-per-day localStorage token, so the student's genuine finish later that
+  // day showed no confetti. A passive completed-load must neither celebrate nor
+  // consume the token.
+  it('does not fire — or burn the daily token — on a passive completed-load', async () => {
+    apiFetch.mockResolvedValueOnce(deckResponse({ completed: true, total: 3 }));
+
+    const { container } = render(<MathProblem />);
+    await screen.findByText(/You've finished all 3 questions/);
+
+    expect(container.querySelector('.confetti')).not.toBeInTheDocument();
+    // The token is untouched, so a real finish later today can still celebrate.
+    expect(localStorage.getItem(CONFETTI_KEY)).toBeNull();
+  });
+
+  it('still celebrates a genuine finish after a passive completed-load earlier that day', async () => {
+    const user = userEvent.setup();
+    // First: a passive load onto a finished deck (must not consume the token)...
+    apiFetch
+      .mockResolvedValueOnce(deckResponse({ completed: true, total: 1 }))
+      // ...then the student works and finishes a fresh deck.
+      .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, total: 1 }))
+      .mockResolvedValueOnce(deckResponse({ completed: true, total: 1 }));
+
+    const { container, unmount } = render(<MathProblem />);
+    await screen.findByText(/You've finished all 1 question/);
+    expect(container.querySelector('.confetti')).not.toBeInTheDocument();
+    unmount();
+
+    const { container: c2 } = render(<MathProblem />);
+    await screen.findByText('1 of 1 questions');
+    await user.type(screen.getByRole('textbox'), '4');
+    await user.click(screen.getByRole('button'));
+
+    await screen.findByText(/You've finished all 1 question/, {}, { timeout: 2500 });
+    expect(c2.querySelector('.confetti')).toBeInTheDocument();
+  });
+
+  it('fires confetti at most once per day', async () => {
+    const user = userEvent.setup();
+    // A genuine finish that celebrates and sets the token...
+    apiFetch
+      .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, total: 1 }))
+      .mockResolvedValueOnce(deckResponse({ completed: true, total: 1 }));
+
+    const { container, unmount } = render(<MathProblem />);
+    await screen.findByText('1 of 1 questions');
+    await user.type(screen.getByRole('textbox'), '4');
+    await user.click(screen.getByRole('button'));
+    await screen.findByText(/You've finished all 1 question/, {}, { timeout: 2500 });
+    expect(container.querySelector('.confetti')).toBeInTheDocument();
+    unmount();
+
+    // ...a second finish the same day must not celebrate again.
+    apiFetch
+      .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, total: 1 }))
+      .mockResolvedValueOnce(deckResponse({ completed: true, total: 1 }));
+
+    const { container: c2 } = render(<MathProblem />);
+    await screen.findByText('1 of 1 questions');
+    await user.type(screen.getByRole('textbox'), '4');
+    await user.click(screen.getByRole('button'));
+    await screen.findByText(/You've finished all 1 question/, {}, { timeout: 2500 });
+    expect(c2.querySelector('.confetti')).not.toBeInTheDocument();
+  });
+});
