@@ -11,8 +11,8 @@ documents the API for manual QA.
 solveki/
 ├── backend/          Django project — JSON API, problem generators, SQLite DB
 │   ├── config/       project package (settings, urls, asgi/wsgi)
-│   ├── myapp/        the single app (models, views, generators, tests, commands)
-│   └── frontend/     React 19 SPA built with Vite
+│   └── myapp/        the single app (models, views, generators, tests, commands)
+├── frontend/         React 19 SPA built with Vite (unit tests + Playwright e2e)
 ├── bruno/            Bruno API client collection (one request per endpoint)
 ├── README.md
 └── .github/          CI
@@ -52,6 +52,7 @@ read `backend/.env`.
 | --- | --- | --- |
 | GET | `auth/me/` | `me` |
 | POST | `auth/google/` | `google_login` |
+| POST | `auth/test-login/` | `test_login` (E2E only; 404 unless `ENABLE_TEST_LOGIN`) |
 | POST | `auth/logout/` | `logout_view` |
 | DELETE | `auth/delete/` | `delete_account` |
 | GET | `problem/` | `generate_problem` |
@@ -69,12 +70,26 @@ decks.
 
 ## Frontend (React 19 + Vite 8)
 
-Located at `backend/frontend/`. Uses KaTeX for math rendering and oxlint for
+Located at `frontend/` (top-level, a sibling of `backend/`). Uses KaTeX for
+math rendering and oxlint for
 linting. `App.jsx` is a top-level router-by-state (`math`, `courses`,
 `settings` pages; `LoginPage` when unauthenticated). Practice UI lives in
 `MathProblem.jsx` / `MathProblemDisplay.jsx` / `MathProblemResponse.jsx`
 (problem rendering, answer box, two-attempt flow); course selection in
 `CourseList.jsx` / `CourseBar.jsx`; auth helpers in `auth.js`.
+
+## Testing
+
+Three layers. Backend unit tests (`backend/myapp/tests/`) and frontend unit
+tests (Vitest, colocated `*.test.jsx`) cover units in isolation. A Playwright
+end-to-end suite (`frontend/e2e/`) drives a real browser through the built SPA
+against a live Django API, covering the login gate, topic selection, the daily
+deck flow, and settings. Since Google OAuth can't run headless, E2E auth goes
+through `POST /auth/test-login/`, gated behind `ENABLE_TEST_LOGIN` (404 when
+off) and resetting the shared test user's state on each call. The suite runs
+serially (one shared backend user → no DB isolation between tests) and has its
+own CI workflow (`.github/workflows/e2e-tests.yml`). See the README for how to
+run it.
 
 ## The math generator system
 
@@ -162,7 +177,7 @@ Generators may declare default kwargs but must be callable with zero args.
 `algebra.py` holds `vertex_form` and `aroc_over_interval`; `geometry.py` holds
 `angle_sum`.
 
-### Resolving a name to a generator (`views.py`, `_make_problem`)
+### Resolving a name to a generator (`views/problems.py`, `_make_problem`)
 
 The local registry and the library are fused here — local generators win, then
 the library is the fallback:
