@@ -36,6 +36,36 @@ class UserTopicSelection(models.Model):
     def __str__(self):
         return f"{self.user} -> {self.topic}"
 
+class TopicReview(models.Model):
+    """Spaced-repetition (SM-2) scheduling state for one user's practice of one topic.
+
+    Solveki schedules *topics*, not individual problems: every problem is freshly
+    generated, so the schedulable unit is the user's mastery of a topic. One row
+    per (user, topic) holds the SM-2 state used to decide when the topic is next
+    due for review.
+
+    Separate from `UserTopicSelection` on purpose: selection and learning history
+    have independent lifecycles, so deselecting a topic (dropping the selection
+    row) preserves its review state for when it's selected again.
+
+    `due_date` is null until the topic has been reviewed at least once; a null
+    `due_date` means "due now" (never practiced yet).
+    """
+    user = models.ForeignKey(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="topic_reviews")
+    topic = models.ForeignKey('Topic', on_delete=models.CASCADE, related_name="reviews")
+    ease = models.FloatField(default=2.5)
+    interval = models.IntegerField(default=0)  # days until next review
+    repetitions = models.IntegerField(default=0)  # consecutive successful reviews
+    due_date = models.DateField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "topic"], name="unique_user_topic_review"),
+        ]
+
+    def __str__(self):
+        return f"Review({self.user} -> {self.topic}, due {self.due_date})"
+
 class Settings(models.Model):
     """Per-user settings."""
     user = models.OneToOneField(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="settings")
