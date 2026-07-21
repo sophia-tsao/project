@@ -127,10 +127,15 @@ function MathProblem() {
     }
   }, [applyDeck]);
 
-  const advanceDeck = useCallback(async () => {
+  // `outcome` reports how the card being left was answered ('correct_first' |
+  // 'correct_second' | 'incorrect') so the backend can update that topic's
+  // spaced-repetition schedule. Omitted for a stray advance with no answer
+  // (e.g. the midnight day-rollover advance), which must not grade anything.
+  const advanceDeck = useCallback(async (outcome) => {
     try {
       const response = await apiFetch(`/deck/advance/?today=${localDay()}`, {
         method: 'POST',
+        ...(typeof outcome === 'string' ? { body: JSON.stringify({ outcome }) } : {}),
       });
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -183,9 +188,11 @@ function MathProblem() {
   // `result` untouched on the flip back so the back face doesn't flash the
   // other outcome while it rotates out of view.
   const handleCorrect = () => {
+    // A first-attempt correct answer grades higher than a second-attempt one.
+    const outcome = attempt === 1 ? 'correct_first' : 'correct_second';
     setResult('correct');
     setFlipped(true);
-    setTimeout(advanceDeck, 1400);
+    setTimeout(() => advanceDeck(outcome), 1400);
   };
 
   const handleIncorrect = () => {
@@ -198,7 +205,7 @@ function MathProblem() {
       setResult('incorrect');
       setResultAnswer(solution);
       setFlipped(true);
-      setTimeout(advanceDeck, 1400);
+      setTimeout(() => advanceDeck('incorrect'), 1400);
     }
   };
 

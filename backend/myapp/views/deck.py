@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 
 from django.http import JsonResponse
@@ -6,11 +7,23 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from ..models import Topic, Settings, DailyDeck, TopicReview
+from ..models import Topic, Settings, DailyDeck, TopicReview, DailyTopicGrade
 from .common import _require_auth
 from .problems import _make_problem_for_topic
+from .. import srs
 
 logger = logging.getLogger(__name__)
+
+# Map an answer outcome to an SM-2 quality grade (0-5). The client reports which
+# of these happened when it advances past a card.
+#   correct_first  -> 5  (recalled cleanly)
+#   correct_second -> 3  (correct, but only on the second attempt: hard)
+#   incorrect      -> 1  (failed both attempts: a lapse)
+_OUTCOME_QUALITY = {
+    "correct_first": 5,
+    "correct_second": 3,
+    "incorrect": 1,
+}
 
 
 def _client_today(request):
@@ -153,6 +166,60 @@ def _generate_problems(user, count, today, existing=()):
         if problem is not None:
             problems.append(problem)
     return problems
+
+
+def _grade_topic(user, topic_id, outcome, today):
+    """Apply an answer outcome to a topic's SM-2 schedule (once-per-day rule).
+
+    `outcome` is one of the keys in `_OUTCOME_QUALITY`; anything else is ignored
+    (defensive against a malformed client report). Implements the grading rule:
+    the first answer for a topic each day sets the schedule, later repeats may
+    only pull it down.
+
+    The rule is applied by recomputing from a fixed base. On the first grade of
+    the day we snapshot the topic's SM-2 state and remember the quality applied.
+    On a repeat we take min(previously-applied quality, this quality): if it's
+    not lower, nothing changes (a passing repeat can't raise the schedule); if it
+    is lower, we recompute the TopicReview from the *snapshot* with the worse
+    quality. Recomputing from the snapshot (rather than the current state) means
+    repeated misses don't compound — the day's net effect is always one SM-2
+    update from a single base.
+    """
+    quality = _OUTCOME_QUALITY.get(outcome)
+    if quality is None:
+        return
+
+    review, _ = TopicReview.objects.get_or_create(user=user, topic_id=topic_id)
+    grade = DailyTopicGrade.objects.filter(
+        user=user, topic_id=topic_id, date=today
+    ).first()
+
+    if grade is None:
+        # First occurrence today: snapshot the pre-grade state, then apply.
+        base = (review.ease, review.interval, review.repetitions)
+        DailyTopicGrade.objects.create(
+            user=user, topic_id=topic_id, date=today,
+            applied_quality=quality,
+            snapshot_ease=base[0], snapshot_interval=base[1], snapshot_repetitions=base[2],
+        )
+    else:
+        # Repeat today: only a strictly worse grade changes anything.
+        if quality >= grade.applied_quality:
+            return
+        base = (grade.snapshot_ease, grade.snapshot_interval, grade.snapshot_repetitions)
+        grade.applied_quality = quality
+        grade.save(update_fields=["applied_quality"])
+
+    ease, interval, repetitions = srs.update(base[0], base[1], base[2], quality)
+    review.ease = ease
+    review.interval = interval
+    review.repetitions = repetitions
+    review.due_date = today + datetime.timedelta(days=interval)
+    review.save(update_fields=["ease", "interval", "repetitions", "due_date"])
+    logger.info(
+        "Graded topic %s for user %s: q=%d -> interval=%d, due %s",
+        topic_id, user.id, quality, interval, review.due_date,
+    )
 
 
 def _get_or_create_today_deck(user, today):
@@ -325,6 +392,11 @@ def advance_deck(request):
     When there's no deck for today yet, treat the advance as a no-op and just
     report the freshly-built deck (get_or_create at index 0), so that stray
     advance lands the student on card 1.
+
+    The optional JSON body `{"outcome": "correct_first"|"correct_second"|
+    "incorrect"}` reports how the card being left was answered; it updates that
+    card's topic's SM-2 schedule (see `_grade_topic`). It's optional so a stray
+    advance with no answer (the midnight-rollover case) simply doesn't grade.
     """
     auth = _require_auth(request)
     if auth:
@@ -333,6 +405,14 @@ def advance_deck(request):
     existing = DailyDeck.objects.filter(user=request.user, date=today).first()
     deck = _get_or_create_today_deck(request.user, today)
     if existing is not None and deck.current_index < len(deck.problems):
+        # Grade the card being left before stepping past it. Only a real,
+        # existing deck advance grades — a stray advance that just built today's
+        # deck (current_index 0, nothing answered) must not.
+        outcome = _advance_outcome(request)
+        card = deck.problems[deck.current_index]
+        topic_id = card.get("topic_id")
+        if outcome and topic_id is not None:
+            _grade_topic(request.user, topic_id, outcome, today)
         deck.current_index += 1
         deck.save(update_fields=["current_index"])
         logger.debug(
@@ -340,3 +420,19 @@ def advance_deck(request):
             request.user.id, deck.current_index, len(deck.problems),
         )
     return JsonResponse(_deck_payload(request.user, deck))
+
+
+def _advance_outcome(request):
+    """The reported answer outcome from an advance request body, or None.
+
+    Tolerant by design: a missing/empty/malformed body (or missing key) yields
+    None so the advance still proceeds ungraded. Validation of the value itself
+    happens in `_grade_topic`.
+    """
+    if not request.body:
+        return None
+    try:
+        return json.loads(request.body).get("outcome")
+    except (ValueError, AttributeError):
+        logger.warning("Ignoring malformed advance body for user %s", request.user.id)
+        return None

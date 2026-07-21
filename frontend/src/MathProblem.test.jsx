@@ -126,7 +126,12 @@ describe('MathProblem — answering', () => {
 
     // The advance is triggered by a real 900ms setTimeout, so allow headroom.
     expect(await screen.findByText('2 of 3 questions', {}, { timeout: 2000 })).toBeInTheDocument();
-    expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', { method: 'POST' });
+    // A first-attempt correct answer is reported as 'correct_first' so the
+    // backend can update the topic's spaced-repetition schedule.
+    expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
+      method: 'POST',
+      body: JSON.stringify({ outcome: 'correct_first' }),
+    });
   });
 
   it('bumps the attempt counter on the first wrong answer', async () => {
@@ -164,9 +169,13 @@ describe('MathProblem — answering', () => {
     expect(screen.getByText('The answer is 4')).toBeInTheDocument();
 
     // ...then advances once the 1400ms flip has been read. Allow headroom.
+    // Two wrong attempts are reported as 'incorrect' (a lapse) to the backend.
     await waitFor(
       () =>
-        expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', { method: 'POST' }),
+        expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
+          method: 'POST',
+          body: JSON.stringify({ outcome: 'incorrect' }),
+        }),
       { timeout: 2500 },
     );
   });

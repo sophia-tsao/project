@@ -5,13 +5,14 @@ text/solutions are deterministic and the rounding logic can be asserted
 precisely.
 """
 import datetime
+import json
 from unittest import mock
 
 from django.test import TestCase, Client
 
-from myapp.models import DailyDeck, Settings, TopicReview
+from myapp.models import DailyDeck, Settings, TopicReview, DailyTopicGrade
 from myapp import views
-from myapp.views.deck import _select_deck_topics, _generate_problems
+from myapp.views.deck import _select_deck_topics, _generate_problems, _grade_topic
 from .factories import make_user, make_course, make_topic, select
 
 
@@ -404,3 +405,135 @@ class GenerateProblemsTests(TestCase):
         # An unresolvable generator name yields no problems rather than hanging.
         self._topic("Broken", generator_name="not_a_real_generator")
         self.assertEqual(_generate_problems(self.user, 3, self.today), [])
+
+
+class GradeTopicTests(TestCase):
+    """Applying answer outcomes to the SM-2 schedule (the once-per-day rule)."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.course = make_course()
+        self.today = datetime.date(2026, 7, 21)
+        self.topic = make_topic(self.course, generator_name="addition")
+        select(self.user, self.topic)
+
+    def _review(self):
+        return TopicReview.objects.get(user=self.user, topic=self.topic)
+
+    def test_first_correct_answer_creates_review_due_in_the_future(self):
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)
+        review = self._review()
+        # First success: interval 1 day, so due tomorrow.
+        self.assertEqual(review.interval, 1)
+        self.assertEqual(review.due_date, self.today + datetime.timedelta(days=1))
+        self.assertEqual(review.repetitions, 1)
+
+    def test_wrong_answer_schedules_for_tomorrow(self):
+        _grade_topic(self.user, self.topic.id, "incorrect", self.today)
+        review = self._review()
+        self.assertEqual(review.interval, 1)
+        self.assertEqual(review.repetitions, 0)
+        self.assertEqual(review.due_date, self.today + datetime.timedelta(days=1))
+
+    def test_unknown_outcome_is_ignored(self):
+        _grade_topic(self.user, self.topic.id, "bogus", self.today)
+        self.assertFalse(TopicReview.objects.filter(user=self.user, topic=self.topic).exists())
+
+    def test_grade_records_one_daily_grade_row(self):
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)
+        self.assertEqual(
+            DailyTopicGrade.objects.filter(
+                user=self.user, topic=self.topic, date=self.today
+            ).count(),
+            1,
+        )
+
+    def test_repeat_success_does_not_raise_schedule(self):
+        # Mature topic; a passing repeat the same day must not lengthen the interval.
+        TopicReview.objects.update_or_create(
+            user=self.user, topic=self.topic,
+            defaults={"ease": 2.5, "interval": 10, "repetitions": 3,
+                      "due_date": self.today},
+        )
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)  # first
+        after_first = self._review().due_date
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)  # repeat
+        self.assertEqual(self._review().due_date, after_first)
+
+    def test_repeat_miss_pulls_schedule_down(self):
+        # First answer correct (long interval), then a repeat miss collapses it.
+        TopicReview.objects.update_or_create(
+            user=self.user, topic=self.topic,
+            defaults={"ease": 2.5, "interval": 10, "repetitions": 3,
+                      "due_date": self.today},
+        )
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)
+        self.assertGreater(self._review().interval, 1)
+        _grade_topic(self.user, self.topic.id, "incorrect", self.today)
+        self.assertEqual(self._review().interval, 1)  # lapsed by the repeat
+
+    def test_repeated_misses_do_not_compound_from_snapshot(self):
+        # Two misses in a day must equal one miss — recomputed from the snapshot,
+        # not applied twice (which would drop ease twice).
+        TopicReview.objects.update_or_create(
+            user=self.user, topic=self.topic,
+            defaults={"ease": 2.5, "interval": 10, "repetitions": 3,
+                      "due_date": self.today},
+        )
+        _grade_topic(self.user, self.topic.id, "incorrect", self.today)
+        ease_after_one = self._review().ease
+        _grade_topic(self.user, self.topic.id, "incorrect", self.today)
+        self.assertEqual(self._review().ease, ease_after_one)
+
+    def test_second_attempt_grades_lower_than_first(self):
+        # correct_second (q=3) yields a lower ease than correct_first (q=5).
+        other = make_topic(self.course, topic_name="Other", generator_name="addition")
+        select(self.user, other)
+        _grade_topic(self.user, self.topic.id, "correct_first", self.today)
+        _grade_topic(self.user, other.id, "correct_second", self.today)
+        first = TopicReview.objects.get(user=self.user, topic=self.topic)
+        second = TopicReview.objects.get(user=self.user, topic=other)
+        self.assertGreater(first.ease, second.ease)
+
+
+class AdvanceGradingTests(TestCase):
+    """The advance endpoint grading the card being left."""
+
+    def setUp(self):
+        self.client = Client()
+        self.user = make_user()
+        self.client.force_login(self.user)
+        self.course = make_course()
+        self.topic = make_topic(self.course, generator_name="addition")
+        select(self.user, self.topic)
+        Settings.objects.update_or_create(
+            user=self.user, defaults={"questions_per_day": 3}
+        )
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_advance_with_outcome_grades_the_current_card(self, mock_gen):
+        self.client.get("/deck/?today=2026-07-21")
+        self.client.post(
+            "/deck/advance/?today=2026-07-21",
+            data=json.dumps({"outcome": "correct_first"}),
+            content_type="application/json",
+        )
+        review = TopicReview.objects.get(user=self.user, topic=self.topic)
+        self.assertEqual(review.due_date, datetime.date(2026, 7, 22))
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_advance_without_body_does_not_grade(self, mock_gen):
+        self.client.get("/deck/?today=2026-07-21")
+        self.client.post("/deck/advance/?today=2026-07-21")
+        self.assertFalse(TopicReview.objects.filter(user=self.user).exists())
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_stray_advance_on_new_day_does_not_grade(self, mock_gen):
+        # No deck exists yet for the new day: the advance builds one at index 0
+        # and must not grade (nothing was answered).
+        self.client.post(
+            "/deck/advance/?today=2026-07-21",
+            data=json.dumps({"outcome": "correct_first"}),
+            content_type="application/json",
+        )
+        self.assertFalse(TopicReview.objects.filter(user=self.user).exists())

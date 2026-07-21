@@ -66,6 +66,38 @@ class TopicReview(models.Model):
     def __str__(self):
         return f"Review({self.user} -> {self.topic}, due {self.due_date})"
 
+class DailyTopicGrade(models.Model):
+    """Records that a topic has been graded on a given day, for the once-per-day rule.
+
+    A topic can appear more than once in a day's deck (the deck fills to
+    `questions_per_day`, repeating topics when few are selected). Only the first
+    answer for a topic each day sets its SM-2 schedule; later repeats may only
+    pull it *down* (a miss re-grades as a lapse; a success does nothing). See the
+    grading module for the rule.
+
+    To apply that without compounding — repeated misses must not drop ease over
+    and over — this stores a snapshot of the topic's SM-2 state *before* the
+    day's first grade (`snapshot_*`) plus the worst quality seen so far today
+    (`applied_quality`). Each occurrence recomputes the TopicReview from the
+    snapshot using min(applied_quality, this_quality), so the day's net effect is
+    always "first grade, then only downward", computed from a single fixed base.
+    """
+    user = models.ForeignKey(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="daily_topic_grades")
+    topic = models.ForeignKey('Topic', on_delete=models.CASCADE, related_name="daily_grades")
+    date = models.DateField()
+    applied_quality = models.IntegerField()  # worst SM-2 quality applied so far today
+    snapshot_ease = models.FloatField()
+    snapshot_interval = models.IntegerField()
+    snapshot_repetitions = models.IntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "topic", "date"], name="unique_user_topic_date_grade"),
+        ]
+
+    def __str__(self):
+        return f"Grade({self.user} -> {self.topic} on {self.date}, q={self.applied_quality})"
+
 class Settings(models.Model):
     """Per-user settings."""
     user = models.OneToOneField(django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="settings")
