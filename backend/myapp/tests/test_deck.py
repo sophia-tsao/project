@@ -55,6 +55,14 @@ class MakeProblemTests(TestCase):
         result = views._make_problem(self.user)
         self.assertEqual(result["solution"], "x + 1")
 
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("Q", "1"))
+    def test_problem_carries_source_topic_id(self, mock_gen):
+        # Each generated problem records which topic it came from, so an answer
+        # can later be attributed to that topic for spaced-repetition scheduling.
+        select(self.user, self.topic)
+        result = views._make_problem(self.user)
+        self.assertEqual(result["topic_id"], self.topic.id)
+
 
 class GenerateProblemTests(TestCase):
     def setUp(self):
@@ -107,6 +115,18 @@ class DeckTests(TestCase):
         data = self.client.post("/deck/advance/").json()
         self.assertTrue(data.get("completed"))
         self.assertEqual(data["total"], 3)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_stored_deck_entries_carry_topic_id(self, mock_gen):
+        # Stored problems remember their source topic so answers can be graded
+        # against it; the client-facing payload still omits it (see _deck_payload).
+        select(self.user, self.topic)
+        Settings.objects.update_or_create(
+            user=self.user, defaults={"questions_per_day": 2}
+        )
+        self.client.get("/deck/")
+        deck = DailyDeck.objects.get(user=self.user)
+        self.assertTrue(all(p["topic_id"] == self.topic.id for p in deck.problems))
 
     @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
     def test_new_day_rebuilds_deck(self, mock_gen):
