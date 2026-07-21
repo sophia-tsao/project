@@ -6,7 +6,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from ..models import Topic, Settings, DailyDeck
+from ..models import Topic, Settings, DailyDeck, TopicReview
 from .common import _require_auth
 from .problems import _make_problem
 
@@ -53,6 +53,61 @@ def _has_topics(user):
     return Topic.objects.filter(
         selections__user=user, generator_name__isnull=False
     ).exists()
+
+
+def _select_deck_topics(user, today, count, exclude=()):
+    """Pick up to `count` topics for today's deck, ordered by spaced repetition.
+
+    This is the one place that decides *which* topics a deck is built from; the
+    deck helpers all route through it so the ordering and de-duplication rules
+    live in a single, testable spot. It reads the SM-2 schedule (each topic's
+    `TopicReview.due_date`, written by the grading step) but never computes it —
+    scheduling math lives in myapp.srs.
+
+    Ordering combines two rules with a single sort on the effective due date:
+
+    - Due first, most overdue first (Option A). A topic never reviewed has no
+      `TopicReview` row; it's treated as due today (sorts alongside today's due
+      topics), so new topics enter the rotation promptly.
+    - Top up with the next-soonest (Option 2). When fewer topics are due than
+      `count`, not-yet-due topics fill the remaining slots, soonest first —
+      their future `due_date` sorts after everything already due, so they're
+      only pulled in to avoid a short deck.
+
+    `exclude` is a set/iterable of topic ids already in the deck; they're left
+    out so top-up and tail-regeneration can't duplicate a topic (each topic
+    appears at most once per day).
+
+    Returns a list of Topic objects (length 0..count). It is empty *only* when
+    the user has no usable topic selected outside `exclude` — never merely
+    because nothing is due yet (the top-up guarantees a full deck while any
+    topic is selected). Callers rely on that: an empty result means "no topics",
+    not "nothing to review today".
+    """
+    if count <= 0:
+        return []
+    exclude = set(exclude)
+    topics = list(
+        Topic.objects.filter(selections__user=user, generator_name__isnull=False)
+    )
+    reviews = {
+        r.topic_id: r
+        for r in TopicReview.objects.filter(user=user, topic__in=topics)
+    }
+
+    def effective_due(topic):
+        # No review row (never practiced) or no due date => due today, so new
+        # topics sort in with today's due items rather than being deferred.
+        review = reviews.get(topic.id)
+        if review is None or review.due_date is None:
+            return today
+        return review.due_date
+
+    candidates = [t for t in topics if t.id not in exclude]
+    # Sort by effective due date; ties broken by id for a stable, deterministic
+    # order (no reliance on DB row order).
+    candidates.sort(key=lambda t: (effective_due(t), t.id))
+    return candidates[:count]
 
 
 def _get_or_create_today_deck(user, today):

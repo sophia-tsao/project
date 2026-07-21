@@ -9,8 +9,9 @@ from unittest import mock
 
 from django.test import TestCase, Client
 
-from myapp.models import DailyDeck, Settings
+from myapp.models import DailyDeck, Settings, TopicReview
 from myapp import views
+from myapp.views.deck import _select_deck_topics
 from .factories import make_user, make_course, make_topic, select
 
 
@@ -224,3 +225,102 @@ class DeckTests(TestCase):
         )
         data = self.client.get("/deck/").json()
         self.assertEqual(data["total"], 2)
+
+
+class SelectDeckTopicsTests(TestCase):
+    """The spaced-repetition topic selector (Option A due order + Option 2 fill).
+
+    Tests the selector in isolation; it is not yet wired into deck building.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.course = make_course()
+        self.today = datetime.date(2026, 7, 21)
+
+    def _topic(self, name, generator_name="addition", selected=True):
+        topic = make_topic(self.course, topic_name=name, generator_name=generator_name)
+        if selected:
+            select(self.user, topic)
+        return topic
+
+    def _review(self, topic, due_date, **kwargs):
+        return TopicReview.objects.create(
+            user=self.user, topic=topic, due_date=due_date, **kwargs
+        )
+
+    def test_empty_when_no_topics_selected(self):
+        # A topic exists but isn't selected -> nothing to review.
+        self._topic("Unselected", selected=False)
+        self.assertEqual(_select_deck_topics(self.user, self.today, 5), [])
+
+    def test_ignores_topics_without_a_generator(self):
+        self._topic("No generator", generator_name=None)
+        self.assertEqual(_select_deck_topics(self.user, self.today, 5), [])
+
+    def test_never_reviewed_topic_is_due_now(self):
+        # No TopicReview row => treated as due today, so it's selected.
+        t = self._topic("Fresh")
+        self.assertEqual(_select_deck_topics(self.user, self.today, 5), [t])
+
+    def test_orders_most_overdue_first(self):
+        recent = self._topic("Recent")
+        old = self._topic("Old")
+        middle = self._topic("Middle")
+        self._review(recent, self.today - datetime.timedelta(days=1))
+        self._review(old, self.today - datetime.timedelta(days=10))
+        self._review(middle, self.today - datetime.timedelta(days=5))
+        result = _select_deck_topics(self.user, self.today, 5)
+        self.assertEqual(result, [old, middle, recent])
+
+    def test_tops_up_with_next_soonest_when_few_are_due(self):
+        # One overdue, two not-yet-due. count=3 pulls the due one first, then
+        # the soonest future topic, then the later one.
+        due = self._topic("Due")
+        soon = self._topic("Soon")
+        later = self._topic("Later")
+        self._review(due, self.today - datetime.timedelta(days=2))
+        self._review(soon, self.today + datetime.timedelta(days=3))
+        self._review(later, self.today + datetime.timedelta(days=30))
+        result = _select_deck_topics(self.user, self.today, 3)
+        self.assertEqual(result, [due, soon, later])
+
+    def test_full_deck_even_when_nothing_is_due(self):
+        # Key invariant: "nothing due" still yields a full deck via top-up, so
+        # an empty result means "no topics", never "nothing to review today".
+        a = self._topic("A")
+        b = self._topic("B")
+        self._review(a, self.today + datetime.timedelta(days=5))
+        self._review(b, self.today + datetime.timedelta(days=10))
+        result = _select_deck_topics(self.user, self.today, 5)
+        self.assertEqual(result, [a, b])
+
+    def test_caps_at_count(self):
+        for i in range(5):
+            self._topic(f"T{i}")
+        result = _select_deck_topics(self.user, self.today, 3)
+        self.assertEqual(len(result), 3)
+
+    def test_excludes_given_topic_ids(self):
+        a = self._topic("A")
+        b = self._topic("B")
+        result = _select_deck_topics(self.user, self.today, 5, exclude={a.id})
+        self.assertEqual(result, [b])
+
+    def test_excluding_all_yields_empty(self):
+        a = self._topic("A")
+        result = _select_deck_topics(self.user, self.today, 5, exclude={a.id})
+        self.assertEqual(result, [])
+
+    def test_zero_count_yields_empty(self):
+        self._topic("A")
+        self.assertEqual(_select_deck_topics(self.user, self.today, 0), [])
+
+    def test_only_selecting_users_topics(self):
+        # Another user's selection must not leak into this user's deck.
+        other = make_user()
+        mine = self._topic("Mine")
+        theirs = make_topic(self.course, topic_name="Theirs", generator_name="addition")
+        select(other, theirs)
+        result = _select_deck_topics(self.user, self.today, 5)
+        self.assertEqual(result, [mine])
