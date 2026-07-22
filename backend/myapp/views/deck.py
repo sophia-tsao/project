@@ -57,19 +57,41 @@ def _has_topics(user):
     ).exists()
 
 
+def _effective_due_dates(user, topics, today):
+    """Map each topic id to its effective SM-2 due date.
+
+    Reads each topic's `TopicReview.due_date` (written by the grading step) but
+    never computes it — scheduling math lives in myapp.srs. A topic never
+    practiced has no `TopicReview` row (or a null `due_date`); it's treated as
+    due *today*, so new topics enter the rotation promptly rather than being
+    deferred. Shared by `_ordered_topics` (ordering) and `_weighted_topic_plan`
+    (how many slots a topic gets), so both read one consistent notion of "due".
+    """
+    reviews = {
+        r.topic_id: r
+        for r in TopicReview.objects.filter(user=user, topic__in=topics)
+    }
+    due = {}
+    for topic in topics:
+        review = reviews.get(topic.id)
+        if review is None or review.due_date is None:
+            due[topic.id] = today
+        else:
+            due[topic.id] = review.due_date
+    return due
+
+
 def _ordered_topics(user, today):
     """The user's selected, usable topics ordered by spaced-repetition priority.
 
     This is the one place that decides the *order* topics are reviewed in; the
     deck helpers route through it so the ordering rule lives in a single,
-    testable spot. It reads the SM-2 schedule (each topic's
-    `TopicReview.due_date`, written by the grading step) but never computes it —
-    scheduling math lives in myapp.srs.
+    testable spot.
 
     A single sort on each topic's effective due date yields the whole policy:
 
-    - Due first, most overdue first (Option A). A topic never reviewed has no
-      `TopicReview` row; it's treated as due today, so new topics enter the
+    - Due first, most overdue first (Option A). A topic never reviewed is
+      treated as due today (see `_effective_due_dates`), so new topics enter the
       rotation promptly rather than being deferred.
     - Next-soonest after that (Option 2). Not-yet-due topics have a future
       `due_date`, so they sort after everything already due — they're only
@@ -82,20 +104,8 @@ def _ordered_topics(user, today):
     topics = list(
         Topic.objects.filter(selections__user=user, generator_name__isnull=False)
     )
-    reviews = {
-        r.topic_id: r
-        for r in TopicReview.objects.filter(user=user, topic__in=topics)
-    }
-
-    def effective_due(topic):
-        # No review row (never practiced) or no due date => due today, so new
-        # topics sort in with today's due items rather than being deferred.
-        review = reviews.get(topic.id)
-        if review is None or review.due_date is None:
-            return today
-        return review.due_date
-
-    topics.sort(key=lambda t: (effective_due(t), t.id))
+    due = _effective_due_dates(user, topics, today)
+    topics.sort(key=lambda t: (due[t.id], t.id))
     return topics
 
 
@@ -124,15 +134,73 @@ def _deck_topic_ids(deck):
     return [p["topic_id"] for p in deck.problems if "topic_id" in p]
 
 
+def _due_weight(due_date, today):
+    """How many deck slots a topic should compete for, by how overdue it is.
+
+    This is the SM-2 signal expressed as *dose within a day* rather than only as
+    ordering: a topic that's due (or overdue) should occupy more of today's deck
+    than one whose next review is still days away. The weight rises with
+    overdueness and falls as the due date recedes into the future, and is
+    continuous at "due today" (both branches give 1):
+
+    - due today or overdue by N days -> weight N + 1 (1, 2, 3, ...)
+    - due in N days                  -> weight 1/(N + 1) (1/2, 1/3, ...)
+
+    Weights are relative; only their ratios matter to the allocation below.
+    """
+    days_overdue = (today - due_date).days
+    if days_overdue >= 0:
+        return float(days_overdue + 1)
+    return 1.0 / (1 - days_overdue)
+
+
+def _weighted_slot_counts(rotation, due, count, today):
+    """Split `count` deck slots across `rotation` topics, weighted by due priority.
+
+    Every topic gets one slot first (a variety floor: every selected topic still
+    appears in the deck), then the *remaining* slots are handed out in proportion
+    to each topic's `_due_weight`, so an overdue topic takes a larger share than
+    one that isn't due yet. The leftover from integer rounding goes to the
+    largest fractional remainders (the standard largest-remainder method), which
+    keeps the allocation deterministic and summing to exactly `count`.
+
+    When there are at least `count` topics no repeats are needed, so the first
+    `count` (already in due order) simply get one slot each and weighting is moot.
+    Returns {topic_id: slot_count} summing to min(count, len(rotation)*...) —
+    exactly `count` whenever any topic is present.
+    """
+    n = len(rotation)
+    if n >= count:
+        return {t.id: 1 for t in rotation[:count]}
+
+    remaining = count - n  # slots left after the one-each variety floor
+    weights = {t.id: _due_weight(due[t.id], today) for t in rotation}
+    total = sum(weights.values())
+    exact = {t.id: remaining * weights[t.id] / total for t in rotation}
+    floors = {tid: int(v) for tid, v in exact.items()}
+    leftover = remaining - sum(floors.values())
+    # Hand the rounding leftover to the largest remainders; stable sort keeps
+    # ties in due order (rotation order), so the allocation is deterministic.
+    by_remainder = sorted(
+        rotation, key=lambda t: exact[t.id] - floors[t.id], reverse=True
+    )
+    for t in by_remainder[:leftover]:
+        floors[t.id] += 1
+    return {t.id: 1 + floors[t.id] for t in rotation}
+
+
 def _generate_problems(user, count, today, existing=()):
-    """Generate exactly `count` problems for the deck, filling by due order.
+    """Generate exactly `count` problems for the deck, weighted by due priority.
 
     Distinct topics come first, most-due first (so a fresh or topped-up deck has
     as much variety as the user's topic set allows). When there are fewer usable
-    topics than `count`, topics repeat — cycling in the same due order — so the
-    deck always reaches `questions_per_day` regardless of how many topics are
-    selected. `existing` is the topic ids already in the deck; those topics are
-    placed last within a cycle, so a top-up adds new topics before repeating any.
+    topics than `count`, topics repeat to fill the deck — but not evenly: slots
+    are allocated by `_weighted_slot_counts`, so a topic that's due or overdue
+    occupies more of the deck than one whose next review is still days out. This
+    keeps the deck full (SM-2 alone would leave a 2-topic user with one due card)
+    while still reflecting SM-2's core signal: practice the due thing more.
+    `existing` is the topic ids already in the deck; those topics are placed last
+    within the rotation, so a top-up adds new topics before repeating any.
 
     Each problem records its source topic id (see `_make_problem_for_topic`), so
     a repeated topic yields a different generated problem but is still
@@ -152,19 +220,38 @@ def _generate_problems(user, count, today, existing=()):
     repeats = [t for t in ordered if t.id in existing]
     rotation = fresh + repeats
 
+    due = _effective_due_dates(user, rotation, today)
+    counts = _weighted_slot_counts(rotation, due, count, today)
+    # Emit the planned slots in due order, one topic per pass, so a topic's
+    # repeats are spread through the deck and the most-due topic leads.
+    sequence = []
+    left = dict(counts)
+    while len(sequence) < sum(counts.values()):
+        for topic in rotation:
+            if left.get(topic.id, 0) > 0:
+                sequence.append(topic)
+                left[topic.id] -= 1
+
     problems = []
-    i = 0
-    # Cap total attempts so a topic set whose generators are all broken can't
-    # loop forever; 2x gives every topic a couple of tries.
-    max_attempts = max(count, len(rotation)) * 2
-    attempts = 0
-    while len(problems) < count and attempts < max_attempts:
-        topic = rotation[i % len(rotation)]
-        i += 1
-        attempts += 1
-        problem = _make_problem_for_topic(topic)
-        if problem is not None:
-            problems.append(problem)
+    broken = set()
+    for planned in sequence:
+        # Try the planned topic; if its generator is broken, fall back to any
+        # other working topic so one dud skews toward the rest rather than
+        # short-decking. `broken` caches duds (a missing generator is a stable
+        # property of a topic) so we never re-attempt them.
+        problem = None
+        for topic in [planned] + [t for t in rotation if t.id != planned.id]:
+            if topic.id in broken:
+                continue
+            made = _make_problem_for_topic(topic)
+            if made is None:
+                broken.add(topic.id)
+                continue
+            problem = made
+            break
+        if problem is None:
+            break  # every topic's generator is broken; return what we have
+        problems.append(problem)
     return problems
 
 

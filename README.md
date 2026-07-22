@@ -5,8 +5,10 @@ math problems organized into courses and topics, checks answers, and lets each
 signed-in user pick which topics they want to practice.
 
 Practice is scheduled with spaced repetition: each answer grades the underlying
-topic on the SM-2 algorithm, and the daily deck surfaces topics in due order so
-struggled-with topics come back soon and mastered ones resurface less often.
+topic on the SM-2 algorithm, and the daily deck surfaces topics in due order and
+gives more of the deck to the topics that are due, so struggled-with topics come
+back soon and take up more of your session while mastered ones resurface less
+often.
 
 Problems are produced by [mathgenerator](https://github.com/lukew3/mathgenerator),
 a library of parameterized math-problem generators (a pip dependency), plus a

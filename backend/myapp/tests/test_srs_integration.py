@@ -153,6 +153,43 @@ class SM2LifecycleTests(TestCase):
         deck2 = DailyDeck.objects.get(user=self.user, date=day2)
         self.assertEqual(deck2.problems[0]["topic_id"], lapsed.id)
 
+    def test_lapsed_topic_gets_more_of_the_deck_next_day(self, _gen):
+        # The SM-2 dose signal end to end: with two topics and a 10-card day,
+        # answering topic 1 correctly (pushed 6+ days out) and topic 2 wrong
+        # (due tomorrow) must make topic 2 occupy MORE of the next day's deck —
+        # not the flat 5/5 split. Both still appear (variety floor).
+        from collections import Counter
+
+        mastered = make_topic(self.course, topic_name="Mastered", generator_name="addition")
+        lapsed = make_topic(self.course, topic_name="Lapsed", generator_name="addition")
+        select(self.user, mastered)
+        select(self.user, lapsed)
+        for t in (mastered, lapsed):
+            TopicReview.objects.update_or_create(
+                user=self.user, topic=t,
+                defaults={"ease": 2.5, "interval": 6, "repetitions": 2,
+                          "due_date": self.START},
+            )
+        self._set_questions_per_day(10)
+
+        day1 = self.START
+        self._load_deck(day1)
+        deck = DailyDeck.objects.get(user=self.user, date=day1)
+        outcomes = {mastered.id: "correct_first", lapsed.id: "incorrect"}
+        # Grade every card in day 1's deck so both topics get their day's grade.
+        for card in deck.problems:
+            self._answer_current(day1, outcomes[card["topic_id"]])
+
+        # Next day: lapsed is due, mastered is scheduled out. Lapsed should take
+        # the larger share of the deck, and both should still be present.
+        day2 = day1 + datetime.timedelta(days=1)
+        self._load_deck(day2)
+        deck2 = DailyDeck.objects.get(user=self.user, date=day2)
+        counts = Counter(c["topic_id"] for c in deck2.problems)
+        self.assertEqual(sum(counts.values()), 10)
+        self.assertGreater(counts[lapsed.id], counts[mastered.id])
+        self.assertGreaterEqual(counts[mastered.id], 1)
+
     def test_new_topic_enters_rotation_and_is_scheduled_after_first_review(self, _gen):
         # A never-practiced topic has no TopicReview row (treated as due now),
         # so it appears immediately; answering it creates its schedule.

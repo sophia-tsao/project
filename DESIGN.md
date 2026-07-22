@@ -125,6 +125,21 @@ Solveki schedules practice with SuperMemo-2. The design splits cleanly into
   `due_date = today + interval`). `_ordered_topics` reads those `due_date`s to
   order the deck but never computes them.
 
+### Filling the deck: due-weighted dose
+
+SM-2 schedules one review per item on its due date, but Solveki always fills the
+day to `questions_per_day` so a student with few selected topics still gets a
+full practice session. Rather than repeat topics evenly, `_generate_problems`
+weights how much of the deck each topic gets by *how overdue* it is
+(`_due_weight`): a topic due today or overdue takes a larger share than one whose
+next review is days out. Every selected topic keeps at least one slot (a variety
+floor), and the remaining slots are split by weight using the largest-remainder
+method so the counts stay deterministic and sum to exactly `questions_per_day`.
+This carries SM-2's core signal — practice the due thing more — into the *within-
+day dose*, not just the ordering: after a lapse, that topic both leads the deck
+and occupies more of it the next day, while a mastered topic recedes to its floor
+slot. Equal-priority topics reduce to an even split.
+
 ### The once-per-day grading rule
 
 A topic can appear more than once in a day's deck (the deck repeats topics when

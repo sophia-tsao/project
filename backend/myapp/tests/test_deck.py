@@ -6,6 +6,7 @@ precisely.
 """
 import datetime
 import json
+from collections import Counter
 from unittest import mock
 
 from django.test import TestCase, Client
@@ -405,6 +406,60 @@ class GenerateProblemsTests(TestCase):
         # An unresolvable generator name yields no problems rather than hanging.
         self._topic("Broken", generator_name="not_a_real_generator")
         self.assertEqual(_generate_problems(self.user, 3, self.today), [])
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("Q", "1"))
+    def test_overdue_topic_gets_more_slots_than_not_due_one(self, mock_gen):
+        # The SM-2 dose signal: with two topics filling a 10-card deck, the
+        # topic that's due today should occupy far more of the deck than one
+        # whose next review is a week out — not an even 5/5 split.
+        due = self._topic("Due")
+        scheduled = self._topic("Scheduled")
+        self._review(due, self.today)  # due today
+        self._review(scheduled, self.today + datetime.timedelta(days=6))
+        problems = _generate_problems(self.user, 10, self.today)
+        self.assertEqual(len(problems), 10)
+        counts = Counter(p["topic_id"] for p in problems)
+        # Both still appear (variety floor), but the due topic dominates.
+        self.assertGreater(counts[due.id], counts[scheduled.id])
+        self.assertGreaterEqual(counts[scheduled.id], 1)
+        self.assertEqual(counts[due.id] + counts[scheduled.id], 10)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("Q", "1"))
+    def test_more_overdue_topic_outweighs_less_overdue_one(self, mock_gen):
+        # Among two overdue topics, the more overdue gets the larger share.
+        very = self._topic("VeryOverdue")
+        slightly = self._topic("SlightlyOverdue")
+        self._review(very, self.today - datetime.timedelta(days=9))
+        self._review(slightly, self.today - datetime.timedelta(days=1))
+        problems = _generate_problems(self.user, 10, self.today)
+        counts = Counter(p["topic_id"] for p in problems)
+        self.assertGreater(counts[very.id], counts[slightly.id])
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("Q", "1"))
+    def test_equally_due_topics_split_evenly(self, mock_gen):
+        # Equal priority => equal dose: two topics both due today split a
+        # 10-card deck 5/5 (the weighting reduces to the old round-robin).
+        a = self._topic("A")
+        b = self._topic("B")
+        self._review(a, self.today)
+        self._review(b, self.today)
+        problems = _generate_problems(self.user, 10, self.today)
+        counts = Counter(p["topic_id"] for p in problems)
+        self.assertEqual(counts[a.id], 5)
+        self.assertEqual(counts[b.id], 5)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("Q", "1"))
+    def test_every_selected_topic_keeps_at_least_one_slot(self, mock_gen):
+        # Even a topic scheduled far into the future keeps its variety-floor
+        # slot, so a full deck never silently drops a selected topic.
+        due = self._topic("Due")
+        far = self._topic("Far")
+        self._review(due, self.today)
+        self._review(far, self.today + datetime.timedelta(days=365))
+        problems = _generate_problems(self.user, 10, self.today)
+        counts = Counter(p["topic_id"] for p in problems)
+        self.assertGreaterEqual(counts[far.id], 1)
+        self.assertEqual(sum(counts.values()), 10)
 
 
 class GradeTopicTests(TestCase):
