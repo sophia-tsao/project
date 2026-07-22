@@ -71,3 +71,36 @@ class UpdateTests(SimpleTestCase):
         args = (2.5, 6, 2)
         srs.update(*args, 5)
         self.assertEqual(args, (2.5, 6, 2))
+
+
+class GradeThresholdTests(SimpleTestCase):
+    """The pass/lapse boundary sits at PASSING_GRADE (q=3): q>=3 succeeds, q<3 lapses."""
+
+    def test_lowest_passing_grade_advances(self):
+        # q=3 is the lowest passing grade: a fresh item advances (reps 0 -> 1,
+        # interval to 1 day) rather than lapsing.
+        ease, interval, reps = srs.update(2.5, 0, 0, srs.PASSING_GRADE)
+        self.assertEqual(interval, 1)
+        self.assertEqual(reps, 1)
+
+    def test_highest_failing_grade_lapses(self):
+        # q=2 is just below the threshold: a mature item still collapses to a
+        # relearn (reps -> 0, interval -> 1), confirming the boundary is q>=3.
+        ease, interval, reps = srs.update(2.5, 30, 5, srs.PASSING_GRADE - 1)
+        self.assertEqual(interval, 1)
+        self.assertEqual(reps, 0)
+
+    def test_passing_grade_advances_the_success_ladder(self):
+        # A passing grade at repetitions==1 takes the second rung (6 days), not
+        # the ease multiplier — the reps==1 branch is exercised on a pass.
+        ease, interval, reps = srs.update(2.5, 1, 1, srs.PASSING_GRADE)
+        self.assertEqual(interval, 6)
+        self.assertEqual(reps, 2)
+
+    def test_lapse_from_reps_one_resets_not_advances(self):
+        # A lapse at the reps==1 boundary must reset (interval 1, reps 0), never
+        # take the 6-day success rung — the pass/lapse branch wins over the
+        # repetitions branch.
+        ease, interval, reps = srs.update(2.5, 6, 1, srs.PASSING_GRADE - 1)
+        self.assertEqual(interval, 1)
+        self.assertEqual(reps, 0)
