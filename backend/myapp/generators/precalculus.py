@@ -11,6 +11,9 @@ from fractions import Fraction
 from math import atan2, cos, degrees, gcd, hypot, radians, sin, sqrt, tan
 
 from ._registry import register
+from ._format import num as _num
+
+_ROUND_HINT = "Round your answer to the nearest thousandth."
 
 
 # Primitive Pythagorean triples (leg, leg, hypotenuse), used where an exact
@@ -80,61 +83,61 @@ def _format_poly(terms, var):
 
 
 @register
-def pc_law_of_sines():
+def pc_law_of_sines(min_angle=25, max_angle=80, min_side=3, max_side=25):
     r"""Law of Sines (ASA)
 
     Given two angles and a side, find another side via
     ``b = a * sin(B) / sin(A)``.
     """
-    angle_a = random.randint(25, 80)
-    angle_b = random.randint(25, 80)
-    side_a = random.randint(3, 25)
-    ans = round(side_a * sin(radians(angle_b)) / sin(radians(angle_a)), 3)
+    angle_a = random.randint(min_angle, max_angle)
+    angle_b = random.randint(min_angle, max_angle)
+    side_a = random.randint(min_side, max_side)
+    ans = side_a * sin(radians(angle_b)) / sin(radians(angle_a))
     problem = (
         f"In triangle $ABC$, angle $A = {angle_a}^\\circ$, angle "
         f"$B = {angle_b}^\\circ$, and side $a = {side_a}$ (opposite $A$). "
-        f"Find side $b$ (opposite $B$), rounded to three decimal places."
+        f"Find side $b$ (opposite $B$), rounded to the nearest thousandth."
     )
-    return problem, f"${ans}$"
+    return problem, f"${_num(ans)}$"
 
 
 @register
-def pc_law_of_cosines_side():
+def pc_law_of_cosines_side(min_side=3, max_side=20, min_angle=20, max_angle=160):
     r"""Law of Cosines (SAS)
 
     Given two sides and the included angle, find the third side via
     ``c^2 = a^2 + b^2 - 2ab*cos(C)``.
     """
-    side_a = random.randint(3, 20)
-    side_b = random.randint(3, 20)
-    angle_c = random.randint(20, 160)
+    side_a = random.randint(min_side, max_side)
+    side_b = random.randint(min_side, max_side)
+    angle_c = random.randint(min_angle, max_angle)
     c_sq = side_a ** 2 + side_b ** 2 - 2 * side_a * side_b * cos(radians(angle_c))
-    ans = round(sqrt(c_sq), 3)
+    ans = sqrt(c_sq)
     problem = (
         f"In triangle $ABC$, side $a = {side_a}$, side $b = {side_b}$, and the "
-        f"included angle $C = {angle_c}^\\circ$. Find side $c$, rounded to "
-        f"three decimal places."
+        f"included angle $C = {angle_c}^\\circ$. Find side $c$, rounded to the "
+        f"nearest thousandth."
     )
-    return problem, f"${ans}$"
+    return problem, f"${_num(ans)}$"
 
 
 @register
-def pc_oblique_triangle_area():
+def pc_oblique_triangle_area(min_side=3, max_side=20, min_angle=20, max_angle=160):
     r"""Oblique Triangle Area (SAS)
 
     Area of a triangle from two sides and the included angle:
     ``0.5 * a * b * sin(C)``.
     """
-    side_a = random.randint(3, 20)
-    side_b = random.randint(3, 20)
-    angle_c = random.randint(20, 160)
-    ans = round(0.5 * side_a * side_b * sin(radians(angle_c)), 3)
+    side_a = random.randint(min_side, max_side)
+    side_b = random.randint(min_side, max_side)
+    angle_c = random.randint(min_angle, max_angle)
+    ans = 0.5 * side_a * side_b * sin(radians(angle_c))
     problem = (
         f"A triangle has sides $a = {side_a}$ and $b = {side_b}$ with included "
-        f"angle $C = {angle_c}^\\circ$. Find its area, rounded to three decimal "
-        f"places."
+        f"angle $C = {angle_c}^\\circ$. Find its area, rounded to the nearest "
+        f"thousandth."
     )
-    return problem, f"${ans}$"
+    return problem, f"${_num(ans)}$"
 
 
 @register
@@ -179,7 +182,8 @@ def pc_double_angle():
         frac = Fraction(cos_num * cos_num - sin_num * sin_num, c * c)
     problem = (
         f"Given that $\\{given} x = \\frac{{{given_num}}}{{{c}}}$ and $x$ is "
-        f"acute, find $\\{target}(2x)$ as a reduced fraction."
+        f"acute, find $\\{target}(2x)$. Express your answer as a reduced "
+        f"fraction a/b."
     )
     return problem, f"${frac.numerator}/{frac.denominator}$"
 
@@ -211,7 +215,8 @@ def pc_solve_trig_equation():
         sols = _solve_trig(fn, value, False)
     problem = (
         f"Solve $\\{func}(x) = {latex}$ for $x$ in $[0, 360)$ degrees. "
-        f"List all solutions in degrees."
+        f"List all solutions in degrees, comma-separated and in increasing "
+        f"order."
     )
     return problem, "$" + ", ".join(str(d) for d in sorted(sols)) + "$"
 
@@ -221,57 +226,63 @@ def _clean(value):
     return round(value, 3) + 0.0
 
 
+def _pt(value):
+    """Typeable coordinate component: 3dp, trailing ``.0`` dropped."""
+    return _num(value)
+
+
 @register
-def pc_polar_to_rectangular():
+def pc_polar_to_rectangular(max_r=10):
     r"""Polar to Rectangular
 
     Convert ``(r, theta_deg)`` to rectangular ``(x, y)``.
     """
-    r = random.randint(1, 10)
+    r = random.randint(1, max_r)
     theta = random.choice([0, 30, 45, 60, 90, 120, 135, 150, 180,
                             210, 225, 240, 270, 300, 315, 330])
-    x = _clean(r * cos(radians(theta)))
-    y = _clean(r * sin(radians(theta)))
+    x = r * cos(radians(theta))
+    y = r * sin(radians(theta))
     problem = (
         f"Convert the polar coordinates $(r, \\theta) = ({r}, {theta}^\\circ)$ "
-        f"to rectangular coordinates $(x, y)$, rounded to three decimal places."
+        f"to rectangular coordinates, rounded to the nearest thousandth. "
+        f"Format your answer as (x, y)."
     )
-    return problem, f"$({x}, {y})$"
+    return problem, f"({_pt(x)}, {_pt(y)})"
 
 
 @register
-def pc_rectangular_to_polar():
+def pc_rectangular_to_polar(max_coord=10):
     r"""Rectangular to Polar
 
     Convert ``(x, y)`` to polar ``(r, theta_deg)`` with ``0 <= theta < 360``.
     """
     while True:
-        x = random.randint(-10, 10)
-        y = random.randint(-10, 10)
+        x = random.randint(-max_coord, max_coord)
+        y = random.randint(-max_coord, max_coord)
         if x != 0 or y != 0:
             break
-    r = _clean(hypot(x, y))
+    r = hypot(x, y)
     theta = degrees(atan2(y, x))
     if theta < 0:
         theta += 360
-    theta = _clean(theta)
     problem = (
         f"Convert the rectangular coordinates $(x, y) = ({x}, {y})$ to polar "
         f"coordinates $(r, \\theta)$ with $\\theta$ in degrees, "
-        f"$0 \\le \\theta < 360$, rounded to three decimal places."
+        f"$0 \\le \\theta < 360$, rounded to the nearest thousandth. "
+        f"Format your answer as (r, theta)."
     )
-    return problem, f"$({r}, {theta})$"
+    return problem, f"({_pt(r)}, {_pt(theta)})"
 
 
 @register
-def pc_finite_geometric_sum():
+def pc_finite_geometric_sum(max_a=6, max_n=8):
     r"""Finite Geometric Series Sum
 
     Sum of the first ``n`` terms with first term ``a`` and ratio ``r``.
     """
-    a = random.choice([i for i in range(-6, 7) if i != 0])
+    a = random.choice([i for i in range(-max_a, max_a + 1) if i != 0])
     r = random.choice([-3, -2, 2, 3])
-    n = random.randint(2, 8)
+    n = random.randint(2, max_n)
     total = sum(a * r ** k for k in range(n))
     problem = (
         f"Find the sum of the first ${n}$ terms of the geometric series with "
@@ -281,14 +292,14 @@ def pc_finite_geometric_sum():
 
 
 @register
-def pc_sigma_arithmetic_sum():
+def pc_sigma_arithmetic_sum(max_coeff=5, max_const=10, max_n=20):
     r"""Sigma-Notation Arithmetic Sum
 
     Evaluate ``sum_{k=1}^{n} (A*k + B)``.
     """
-    coeff = random.randint(1, 5)
-    const = random.randint(-10, 10)
-    n = random.randint(3, 20)
+    coeff = random.randint(1, max_coeff)
+    const = random.randint(-max_const, max_const)
+    n = random.randint(3, max_n)
     total = sum(coeff * k + const for k in range(1, n + 1))
     term = f"{coeff}k"
     if const > 0:
@@ -322,7 +333,8 @@ def pc_sequence_limit():
     numerator = _format_poly(num_terms, "n")
     denominator = _format_poly(den_terms, "n")
     problem = (
-        f"Find $\\lim_{{n \\to \\infty}} \\frac{{{numerator}}}{{{denominator}}}$."
+        f"Find $\\lim_{{n \\to \\infty}} \\frac{{{numerator}}}{{{denominator}}}$. "
+        f"Express your answer as an integer or reduced fraction a/b."
     )
     if frac.denominator == 1:
         solution = f"${frac.numerator}$"
@@ -332,13 +344,15 @@ def pc_sequence_limit():
 
 
 @register
-def pc_vector_add():
+def pc_vector_add(max_component=9):
     r"""Vector Operations (2D)
 
     Add, subtract, or scale two 2D vectors.
     """
-    ux, uy = random.randint(-9, 9), random.randint(-9, 9)
-    vx, vy = random.randint(-9, 9), random.randint(-9, 9)
+    ux, uy = (random.randint(-max_component, max_component),
+              random.randint(-max_component, max_component))
+    vx, vy = (random.randint(-max_component, max_component),
+              random.randint(-max_component, max_component))
     op = random.choice(["add", "sub", "scalar"])
     if op == "add":
         target = r"\vec{u} + \vec{v}"
@@ -352,13 +366,14 @@ def pc_vector_add():
         rx, ry = scalar * ux, scalar * uy
     problem = (
         f"Let $\\vec{{u}} = \\langle {ux}, {uy} \\rangle$ and "
-        f"$\\vec{{v}} = \\langle {vx}, {vy} \\rangle$. Compute ${target}$."
+        f"$\\vec{{v}} = \\langle {vx}, {vy} \\rangle$. Compute ${target}$. "
+        f"Give the resulting vector as (x, y)."
     )
-    return problem, f"$\\langle {rx}, {ry} \\rangle$"
+    return problem, f"({rx}, {ry})"
 
 
 @register
-def pc_parametric_to_rectangular():
+def pc_parametric_to_rectangular(max_bd=6):
     r"""Eliminate the Parameter
 
     Given ``x = a*t + b`` and ``y = c*t + d`` (a divides c), eliminate ``t`` to
@@ -367,8 +382,8 @@ def pc_parametric_to_rectangular():
     a = random.choice([i for i in range(-3, 4) if i != 0])
     quotient = random.choice([i for i in range(-4, 5) if i != 0])  # c / a
     c = a * quotient
-    b = random.randint(-6, 6)
-    d = random.randint(-6, 6)
+    b = random.randint(-max_bd, max_bd)
+    d = random.randint(-max_bd, max_bd)
     slope = c // a  # == quotient, integer
     intercept = d - slope * b
 
@@ -389,6 +404,7 @@ def pc_parametric_to_rectangular():
     d_str = f"+ {d}" if d >= 0 else f"- {abs(d)}"
     problem = (
         f"Eliminate the parameter for $x = {a}t {b_str}$ and "
-        f"$y = {c}t {d_str}$ to express $y$ as a linear function of $x$."
+        f"$y = {c}t {d_str}$ to express $y$ as a linear function of $x$. "
+        f"Write your answer in the form y = mx+b."
     )
     return problem, f"$y = {rhs}$"

@@ -15,14 +15,17 @@ from myapp.generators import LOCAL_GENERATORS
 
 SAMPLES = 2000
 
-# Inequality relation tokens and their reversal.
+# Inequality relation tokens and their reversal. Problems render LaTeX
+# (``\leq``/``\geq``); solutions use typeable ASCII (``<=``/``>=``).
 FLIP = {"<": ">", ">": "<", "\\leq": "\\geq", "\\geq": "\\leq"}
-OP_RE = r"(?:<|>|\\leq|\\geq)"
+OP_RE = r"(?:<|>|\\leq|\\geq)"          # relation as it appears in the problem
+ASCII_OF = {"<": "<", ">": ">", "\\leq": "<=", "\\geq": ">="}
+SOL_OP_RE = r"(?:<=|>=|<|>)"            # relation as it appears in the solution
 
 
 def parse_frac_solution(solution):
-    """Parse ``$\\frac{p}{q}$`` or ``$n$`` into a ``Fraction``."""
-    m = re.search(r"\\frac\{(-?\d+)\}\{(-?\d+)\}", solution)
+    """Parse a typeable ``$p/q$`` or ``$n$`` solution into a ``Fraction``."""
+    m = re.search(r"\$(-?\d+)/(-?\d+)\$", solution)
     if m:
         return Fraction(int(m.group(1)), int(m.group(2)))
     m = re.search(r"\$(-?\d+)\$", solution)
@@ -173,7 +176,7 @@ class OneStepInequalityTests(TestCase):
         import random
         random.seed(0)
         gen = LOCAL_GENERATORS["pre_one_step_inequality"]
-        sol_re = re.compile(rf"x ({OP_RE}) (-?\d+)")
+        sol_re = re.compile(rf"x ({SOL_OP_RE}) (-?\d+)")
         for _ in range(SAMPLES):
             problem, solution = gen()
             sm = sol_re.search(solution)
@@ -185,7 +188,7 @@ class OneStepInequalityTests(TestCase):
                 a = int(add.group(2)) * (1 if add.group(1) == "+" else -1)
                 op = add.group(3)
                 b = int(add.group(4))
-                self.assertEqual(sol_op, op)
+                self.assertEqual(sol_op, ASCII_OF[op])
                 self.assertEqual(sol_c, b - a)
             else:
                 k = int(mul.group(1))
@@ -193,7 +196,7 @@ class OneStepInequalityTests(TestCase):
                 b = int(mul.group(3))
                 self.assertEqual(b % k, 0)
                 expected_op = FLIP[op] if k < 0 else op
-                self.assertEqual(sol_op, expected_op)
+                self.assertEqual(sol_op, ASCII_OF[expected_op])
                 self.assertEqual(sol_c, b // k)
 
 
@@ -202,7 +205,7 @@ class MultiStepInequalityTests(TestCase):
         import random
         random.seed(0)
         gen = LOCAL_GENERATORS["pre_multi_step_inequality"]
-        sol_re = re.compile(rf"x ({OP_RE}) (-?\d+)")
+        sol_re = re.compile(rf"x ({SOL_OP_RE}) (-?\d+)")
         prob_re = re.compile(rf"(-?\d+)x ([+-]) (\d+) ({OP_RE}) (-?\d+)")
         for _ in range(SAMPLES):
             problem, solution = gen()
@@ -215,7 +218,7 @@ class MultiStepInequalityTests(TestCase):
             c = int(pm.group(5))
             self.assertEqual((c - b) % a, 0)
             expected_op = FLIP[op] if a < 0 else op
-            self.assertEqual(sol_op, expected_op)
+            self.assertEqual(sol_op, ASCII_OF[expected_op])
             self.assertEqual(sol_c, (c - b) // a)
 
 
@@ -229,7 +232,7 @@ class ScientificNotationTests(TestCase):
             r"(\d+\.\d) \\times 10\^\{(-?\d+)\} (\+|-|\\div) "
             r"(\d+\.\d) \\times 10\^\{(-?\d+)\}"
         )
-        sol_re = re.compile(r"\$([\d.]+) \\times 10\^\{(-?\d+)\}\$")
+        sol_re = re.compile(r"\$([\d.]+)\*10\^(-?\d+)\$")
         for _ in range(SAMPLES):
             problem, solution = gen()
             pm = prob_re.search(problem)
@@ -257,7 +260,7 @@ class IntegerExponentRulesTests(TestCase):
         import random
         random.seed(0)
         gen = LOCAL_GENERATORS["pre_integer_exponent_rules"]
-        sol_re = re.compile(r"\$(\d+)\^\{(-?\d+)\}\$")
+        sol_re = re.compile(r"\$(\d+)\^(-?\d+)\$")
         for _ in range(SAMPLES):
             problem, solution = gen()
             sm = sol_re.search(solution)

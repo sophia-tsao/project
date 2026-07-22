@@ -2,6 +2,7 @@
 import random
 
 from ._registry import register
+from ._format import num as _num
 
 
 def _format_polynomial(terms):
@@ -87,7 +88,8 @@ def aroc_over_interval(max_degree=5, max_coefficient=10, min_coefficient=-10):
     ans = (y_value1 - y_value2) / (x_value1 - x_value2)
     problem = (
         f"Given the function ${function}$, find the average rate of change "
-        f"over the interval ${x_value1}$<=x<=${x_value2}$"
+        f"over the interval ${x_value1}$<=x<=${x_value2}$. "
+        f"Round your answer to the nearest thousandth."
     )
-    solution = f"${ans}$"
+    solution = f"${_num(ans)}$"
     return problem, solution

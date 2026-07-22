@@ -252,7 +252,7 @@ class InscribedAngleTests(TestCase):
         r"inscribed angle measures \$(?P<a>\d+)\^\\circ\$\. Find the measure of "
         r"the central"
     )
-    SOLUTION = re.compile(r"\$(?P<a>\d+)\^\\circ\$")
+    SOLUTION = re.compile(r"\$(?P<a>\d+)\$")
 
     def test_inscribed_matches(self):
         random.seed(0)

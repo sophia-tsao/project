@@ -109,8 +109,8 @@ class EvaluateExponentialTests(TestCase):
 class DomainOfFunctionTests(TestCase):
     SQRT = re.compile(r"\\sqrt\{x(?P<b>[+-]\d+)?\}")
     RATIONAL = re.compile(r"\\frac\{1\}\{x(?P<b>[+-]\d+)?\}")
-    GEQ = re.compile(r"x \\geq (?P<v>-?\d+)")
-    NEQ = re.compile(r"x \\neq (?P<v>-?\d+)")
+    GEQ = re.compile(r"x >= (?P<v>-?\d+)")
+    NEQ = re.compile(r"x != (?P<v>-?\d+)")
 
     def test_domain_matches(self):
         random.seed(0)
@@ -195,8 +195,10 @@ class LinearInequalityTests(TestCase):
     PROBLEM = re.compile(
         r"\$(?P<a>-?\d+)x(?P<b>[+-]\d+)? (?P<op>\S+) (?P<c>-?\d+)\$"
     )
-    SOLUTION = re.compile(r"x (?P<op>\S+) (?P<v>-?\d+(?:/\d+)?)")
+    # Solutions render relations in typeable ASCII; problems keep LaTeX.
+    SOLUTION = re.compile(r"x (?P<op><=|>=|<|>) (?P<v>-?\d+(?:/\d+)?)")
     FLIP = {"<": ">", ">": "<", "\\leq": "\\geq", "\\geq": "\\leq"}
+    ASCII_OF = {"<": "<", ">": ">", "\\leq": "<=", "\\geq": ">="}
 
     def test_inequality_matches(self):
         random.seed(0)
@@ -214,7 +216,7 @@ class LinearInequalityTests(TestCase):
 
             sol = self.SOLUTION.search(solution)
             self.assertIsNotNone(sol, f"could not parse: {solution!r}")
-            self.assertEqual(sol.group("op"), expected_op, problem)
+            self.assertEqual(sol.group("op"), self.ASCII_OF[expected_op], problem)
             self.assertEqual(
                 _frac(sol.group("v")), expected_threshold,
                 f"threshold wrong for {problem!r} -> {solution!r}",

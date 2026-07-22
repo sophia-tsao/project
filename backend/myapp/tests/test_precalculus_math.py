@@ -322,7 +322,7 @@ class VectorAddTests(TestCase):
         r"\\vec\{v\} = \\langle (?P<vx>-?\d+), (?P<vy>-?\d+) \\rangle.*?"
         r"Compute \$(?P<op>.+?)\$\."
     )
-    SOLUTION = re.compile(r"\\langle (?P<x>-?\d+), (?P<y>-?\d+) \\rangle")
+    SOLUTION = re.compile(r"\((?P<x>-?\d+), (?P<y>-?\d+)\)")
 
     def test_vector_op_matches(self):
         random.seed(0)

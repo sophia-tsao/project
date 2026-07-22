@@ -11,7 +11,10 @@ import random
 from fractions import Fraction
 
 from ._registry import register
+from ._format import num as _num
 from .algebra import _format_polynomial
+
+_FRACTION_HINT = "Express your answer as a fraction in the form a/b, or an integer."
 
 
 # --- small polynomial helpers (poly represented as {exponent: coefficient}) ---
@@ -70,13 +73,13 @@ def _rand_poly(degree, lo=-5, hi=5):
 # --------------------------------- limits ---------------------------------
 
 @register
-def calc_limit_rational():
+def calc_limit_rational(min_c=-4, max_c=4):
     r"""Limit of a Rational Function at a Point
 
     Either a removable discontinuity (shared linear factor cancels) or a
     direct substitution. Answer is an exact, reduced value.
     """
-    c = random.randint(-4, 4)
+    c = random.randint(min_c, max_c)
     if random.random() < 0.5:
         # Removable: num = (x - c)*L1, den = (x - c)*L2 with L2(c) != 0.
         l1 = {1: random.choice([i for i in range(-4, 5) if i != 0]),
@@ -101,7 +104,7 @@ def calc_limit_rational():
 
     problem = (
         f"Evaluate $\\lim_{{x \\to {c}}} "
-        f"\\frac{{{_poly_str(num)}}}{{{_poly_str(den)}}}$"
+        f"\\frac{{{_poly_str(num)}}}{{{_poly_str(den)}}}$. {_FRACTION_HINT}"
     )
     solution = f"${_fmt_frac(ans)}$"
     return problem, solution
@@ -110,20 +113,23 @@ def calc_limit_rational():
 # ------------------------------ derivatives -------------------------------
 
 @register
-def calc_derivative_polynomial():
+def calc_derivative_polynomial(min_degree=2, max_degree=4):
     r"""Derivative of a Polynomial
 
     Solution is the derivative polynomial as a string.
     """
-    poly = _rand_poly(random.randint(2, 4))
+    poly = _rand_poly(random.randint(min_degree, max_degree))
     deriv = _poly_deriv(poly)
-    problem = f"Find the derivative of $f(x) = {_poly_str(poly)}$"
+    problem = (
+        f"Find the derivative of $f(x) = {_poly_str(poly)}$. "
+        f"Write your answer as a polynomial, e.g. 3x^2-2x+1."
+    )
     solution = f"${_poly_str(deriv)}$"
     return problem, solution
 
 
 @register
-def calc_product_rule():
+def calc_product_rule(min_c=-4, max_c=4):
     r"""Product Rule at a Point
 
     Derivative of a product of two linear/quadratic factors, evaluated at a
@@ -134,7 +140,7 @@ def calc_product_rule():
         return _rand_poly(deg, lo=-4, hi=4)
 
     f1, f2 = factor(), factor()
-    c = random.randint(-4, 4)
+    c = random.randint(min_c, max_c)
     product = _poly_mul(f1, f2)
     ans = _poly_eval(_poly_deriv(product), c)
     problem = (
@@ -146,7 +152,7 @@ def calc_product_rule():
 
 
 @register
-def calc_quotient_rule():
+def calc_quotient_rule(min_c=-4, max_c=4):
     r"""Quotient Rule at a Point
 
     Derivative of a (linear)/(linear) rational at a point, exact reduced
@@ -154,7 +160,7 @@ def calc_quotient_rule():
     """
     num = {1: random.choice([i for i in range(-5, 6) if i != 0]),
            0: random.randint(-5, 5)}
-    c = random.randint(-4, 4)
+    c = random.randint(min_c, max_c)
     while True:
         den = {1: random.choice([i for i in range(-5, 6) if i != 0]),
                0: random.randint(-5, 5)}
@@ -168,22 +174,23 @@ def calc_quotient_rule():
     ans = Fraction(top, bottom)
     problem = (
         f"Find the derivative of $f(x) = "
-        f"\\frac{{{_poly_str(num)}}}{{{_poly_str(den)}}}$ at $x = {c}$"
+        f"\\frac{{{_poly_str(num)}}}{{{_poly_str(den)}}}$ at $x = {c}$. "
+        f"{_FRACTION_HINT}"
     )
     solution = f"${_fmt_frac(ans)}$"
     return problem, solution
 
 
 @register
-def calc_chain_rule():
+def calc_chain_rule(min_c=-3, max_c=3, max_power=4):
     r"""Chain Rule at a Point
 
     Derivative of $(ax+b)^n$ evaluated at a point, exact numeric.
     """
     a = random.choice([i for i in range(-3, 4) if i != 0])
     b = random.randint(-4, 4)
-    n = random.randint(2, 4)
-    c = random.randint(-3, 3)
+    n = random.randint(2, max_power)
+    c = random.randint(min_c, max_c)
     inner = {1: a, 0: b}
     ans = n * a * (_poly_eval(inner, c) ** (n - 1))
     problem = (
@@ -219,13 +226,16 @@ def calc_derivative_exp_log_trig():
         else:  # cos
             expr = f"{a} \\cos({k} x)"
             value = -a * k * math.sin(k * c)
-    problem = f"Find the derivative of $f(x) = {expr}$ at $x = {c}$"
-    solution = f"${round(value, 3)}$"
+    problem = (
+        f"Find the derivative of $f(x) = {expr}$ at $x = {c}$. "
+        f"Round your answer to the nearest thousandth."
+    )
+    solution = f"${_num(value)}$"
     return problem, solution
 
 
 @register
-def calc_higher_order_derivative():
+def calc_higher_order_derivative(min_c=-3, max_c=3):
     r"""Higher-Order Derivative at a Point
 
     The n-th derivative of a polynomial evaluated at a point, exact numeric.
@@ -236,7 +246,7 @@ def calc_higher_order_derivative():
     d = poly
     for _ in range(order):
         d = _poly_deriv(d)
-    c = random.randint(-3, 3)
+    c = random.randint(min_c, max_c)
     ans = _poly_eval(d, c) if d else 0
     ordinal = {2: "2nd", 3: "3rd"}[order]
     problem = (
@@ -250,23 +260,26 @@ def calc_higher_order_derivative():
 # ------------------------- applications of derivatives --------------------
 
 @register
-def calc_tangent_line():
+def calc_tangent_line(min_c=-3, max_c=3):
     r"""Tangent Line to a Polynomial at a Point
 
     Solution is the line ``y = m x + b``.
     """
     poly = _rand_poly(random.randint(2, 3))
-    c = random.randint(-3, 3)
+    c = random.randint(min_c, max_c)
     m = _poly_eval(_poly_deriv(poly), c)
     b = _poly_eval(poly, c) - m * c
     rhs = _poly_str({1: m, 0: b})
-    problem = f"Find the tangent line to $f(x) = {_poly_str(poly)}$ at $x = {c}$"
+    problem = (
+        f"Find the tangent line to $f(x) = {_poly_str(poly)}$ at $x = {c}$. "
+        f"Write your answer in the form y = mx+b."
+    )
     solution = f"$y = {rhs}$"
     return problem, solution
 
 
 @register
-def calc_extrema():
+def calc_extrema(min_root=-5, max_root=5):
     r"""Critical Points via the First Derivative
 
     Critical x-values of a quadratic or cubic, sorted, as ``x = a, b``.
@@ -274,14 +287,14 @@ def calc_extrema():
     if random.random() < 0.5:
         # Quadratic with an integer critical point.
         a = random.choice([i for i in range(-4, 5) if i != 0])
-        r = random.randint(-5, 5)
+        r = random.randint(min_root, max_root)
         poly = {2: a, 1: -2 * a * r, 0: random.randint(-5, 5)}
         roots = [r]
     else:
         # Cubic with two distinct integer critical points.
         while True:
-            r1 = random.randint(-5, 5)
-            r2 = random.randint(-5, 5)
+            r1 = random.randint(min_root, max_root)
+            r2 = random.randint(min_root, max_root)
             if r1 != r2 and (r1 + r2) % 2 == 0:
                 break
         r1, r2 = sorted((r1, r2))
@@ -291,25 +304,32 @@ def calc_extrema():
         poly = {3: a, 2: b, 1: c, 0: random.randint(-5, 5)}
         roots = [r1, r2]
     xs = ", ".join(str(x) for x in sorted(roots))
-    problem = f"Find the critical points of $f(x) = {_poly_str(poly)}$"
+    problem = (
+        f"Find the critical points of $f(x) = {_poly_str(poly)}$. "
+        f"Give the x-value(s) as integers or fractions a/b, comma-separated "
+        f"and in increasing order."
+    )
     solution = f"$x = {xs}$"
     return problem, solution
 
 
 @register
-def calc_inflection_point():
+def calc_inflection_point(max_coeff=6):
     r"""Inflection Point of a Cubic via the Second Derivative
 
     Reports the exact reduced x-value of the inflection point.
     """
     a = random.choice([i for i in range(-4, 5) if i != 0])
-    b = random.randint(-6, 6)
-    c = random.randint(-6, 6)
-    d = random.randint(-6, 6)
+    b = random.randint(-max_coeff, max_coeff)
+    c = random.randint(-max_coeff, max_coeff)
+    d = random.randint(-max_coeff, max_coeff)
     poly = {3: a, 2: b, 1: c, 0: d}
     # f'' = 6a x + 2b -> x = -b / (3a)
     ans = Fraction(-b, 3 * a)
-    problem = f"Find the inflection point of $f(x) = {_poly_str(poly)}$"
+    problem = (
+        f"Find the inflection point of $f(x) = {_poly_str(poly)}$. "
+        f"Give the x-value as an integer or fraction a/b. {_FRACTION_HINT}"
+    )
     solution = f"$x = {_fmt_frac(ans)}$"
     return problem, solution
 
@@ -329,7 +349,10 @@ def calc_definite_integral_poly():
         Fraction(coeff * (b ** (exp + 1) - a ** (exp + 1)), exp + 1)
         for exp, coeff in poly.items()
     )
-    problem = f"Evaluate $\\int_{{{a}}}^{{{b}}} {_poly_str(poly)} \\, dx$"
+    problem = (
+        f"Evaluate $\\int_{{{a}}}^{{{b}}} {_poly_str(poly)} \\, dx$. "
+        f"{_FRACTION_HINT}"
+    )
     solution = f"${_fmt_frac(total)}$"
     return problem, solution
 
@@ -350,7 +373,10 @@ def calc_indefinite_integral_poly():
             m = random.choice([-2, -1, 1, 2])
         poly[exp] = m * (exp + 1)      # integrates to m*x^(exp+1)
         anti[exp + 1] = m
-    problem = f"Find the indefinite integral $\\int {_poly_str(poly)} \\, dx$"
+    problem = (
+        f"Find the indefinite integral $\\int {_poly_str(poly)} \\, dx$. "
+        f"Write your answer as a polynomial plus C, e.g. x^2+3x + C."
+    )
     solution = f"${_poly_str(anti)} + C$"
     return problem, solution
 
@@ -370,7 +396,10 @@ def calc_usub_integral():
     lower = (a * p + b) ** (n + 1)
     ans = Fraction(upper - lower, a * (n + 1))
     inner = _poly_str({1: a, 0: b})
-    problem = f"Evaluate $\\int_{{{p}}}^{{{q}}} ({inner})^{{{n}}} \\, dx$"
+    problem = (
+        f"Evaluate $\\int_{{{p}}}^{{{q}}} ({inner})^{{{n}}} \\, dx$. "
+        f"{_FRACTION_HINT}"
+    )
     solution = f"${_fmt_frac(ans)}$"
     return problem, solution
 
@@ -395,7 +424,7 @@ def calc_area_between_curves():
     )
     problem = (
         f"Find the area between $f(x) = {_poly_str(f)}$ and "
-        f"$g(x) = {_poly_str(g)}$ over $[{a}, {b}]$"
+        f"$g(x) = {_poly_str(g)}$ over $[{a}, {b}]$. {_FRACTION_HINT}"
     )
     solution = f"${_fmt_frac(abs(area))}$"
     return problem, solution
@@ -415,7 +444,10 @@ def calc_average_value():
         for exp, coeff in poly.items()
     )
     ans = integral / (b - a)
-    problem = f"Find the average value of $f(x) = {_poly_str(poly)}$ on $[{a}, {b}]$"
+    problem = (
+        f"Find the average value of $f(x) = {_poly_str(poly)}$ on $[{a}, {b}]$. "
+        f"{_FRACTION_HINT}"
+    )
     solution = f"${_fmt_frac(ans)}$"
     return problem, solution
 
@@ -437,7 +469,7 @@ def calc_riemann_sum():
     ans = dx * total
     problem = (
         f"Find the {side} Riemann sum of $f(x) = {_poly_str(poly)}$ on "
-        f"$[{a}, {b}]$ using ${n}$ rectangles"
+        f"$[{a}, {b}]$ using ${n}$ rectangles. {_FRACTION_HINT}"
     )
     solution = f"${_fmt_frac(ans)}$"
     return problem, solution

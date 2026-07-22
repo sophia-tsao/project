@@ -12,14 +12,7 @@ import random
 from math import gcd
 
 from ._registry import register
-
-
-def _fmt(value):
-    """Render a number cleanly: an integer when integral, else <=3dp."""
-    rounded = round(value, 3)
-    if rounded == int(rounded):
-        return str(int(rounded))
-    return str(rounded)
+from ._format import num as _fmt  # noqa: F401 — typeable number formatter
 
 
 def _median(values):
@@ -33,7 +26,7 @@ def _median(values):
 
 
 @register
-def stat_five_number_summary():
+def stat_five_number_summary(min_val=1, max_val=20):
     r"""Five-Number Summary
 
     | Ex. Problem | Ex. Solution |
@@ -44,7 +37,7 @@ def stat_five_number_summary():
     the overall median excluded from both halves when the count is odd.
     """
     n = random.choice([5, 6, 7, 8])
-    data = [random.randint(1, 20) for _ in range(n)]
+    data = [random.randint(min_val, max_val) for _ in range(n)]
     ordered = sorted(data)
 
     mid = n // 2
@@ -75,7 +68,7 @@ def stat_five_number_summary():
 
 
 @register
-def stat_z_score():
+def stat_z_score(min_val=0, max_val=100):
     r"""Z-Score
 
     | Ex. Problem | Ex. Solution |
@@ -84,9 +77,9 @@ def stat_z_score():
 
     z = (x - mean) / standard deviation, rounded to 3 decimal places.
     """
-    mean = random.randint(0, 100)
+    mean = random.randint(min_val, max_val)
     sd = random.choice([1, 2, 2.5, 4, 5, 8, 10])
-    x = random.randint(0, 100)
+    x = random.randint(min_val, max_val)
 
     z = (x - mean) / sd
     problem = (
@@ -98,12 +91,12 @@ def stat_z_score():
     return problem, solution
 
 
-def _integer_points():
+def _integer_points(max_val=12):
     """Return 4-5 integer (x, y) points with non-zero x- and y-variance."""
     while True:
         count = random.choice([4, 5])
-        xs = random.sample(range(0, 12), count)  # distinct x -> Sxx > 0
-        ys = [random.randint(0, 12) for _ in range(count)]
+        xs = random.sample(range(0, max_val), count)  # distinct x -> Sxx > 0
+        ys = [random.randint(0, max_val) for _ in range(count)]
         if len(set(ys)) > 1:  # non-constant y -> Syy > 0
             return list(zip(xs, ys))
 
@@ -113,7 +106,7 @@ def _points_str(points):
 
 
 @register
-def stat_correlation_coefficient():
+def stat_correlation_coefficient(max_val=12):
     r"""Pearson Correlation Coefficient
 
     | Ex. Problem | Ex. Solution |
@@ -122,7 +115,7 @@ def stat_correlation_coefficient():
 
     Pearson r = Sxy / sqrt(Sxx * Syy), rounded to 3 decimal places.
     """
-    points = _integer_points()
+    points = _integer_points(max_val)
     n = len(points)
     mean_x = sum(x for x, _ in points) / n
     mean_y = sum(y for _, y in points) / n
@@ -140,7 +133,7 @@ def stat_correlation_coefficient():
 
 
 @register
-def stat_regression_line():
+def stat_regression_line(max_val=12):
     r"""Least-Squares Regression Line
 
     | Ex. Problem | Ex. Solution |
@@ -149,7 +142,7 @@ def stat_regression_line():
 
     Slope m = Sxy / Sxx, intercept b = mean_y - m * mean_x, both rounded to 3dp.
     """
-    points = _integer_points()
+    points = _integer_points(max_val)
     n = len(points)
     mean_x = sum(x for x, _ in points) / n
     mean_y = sum(y for _, y in points) / n
@@ -170,7 +163,7 @@ def stat_regression_line():
 
 
 @register
-def stat_margin_of_error():
+def stat_margin_of_error(min_n=30, max_n=1500):
     r"""Margin of Error for a Proportion
 
     | Ex. Problem | Ex. Solution |
@@ -181,7 +174,7 @@ def stat_margin_of_error():
     """
     p = random.choice([0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9])
     z = random.choice([1.645, 1.96, 2.576])
-    n = random.randint(30, 1500)
+    n = random.randint(min_n, max_n)
 
     moe = z * math.sqrt(p * (1 - p) / n)
     problem = (
@@ -194,7 +187,7 @@ def stat_margin_of_error():
 
 
 @register
-def stat_standard_error_mean():
+def stat_standard_error_mean(max_sd=50, max_n=400):
     r"""Standard Error of the Mean
 
     | Ex. Problem | Ex. Solution |
@@ -203,8 +196,8 @@ def stat_standard_error_mean():
 
     Standard error = s / sqrt(n), rounded to 3 decimal places.
     """
-    sd = random.randint(1, 50)
-    n = random.randint(2, 400)
+    sd = random.randint(1, max_sd)
+    n = random.randint(2, max_n)
 
     se = sd / math.sqrt(n)
     problem = (
@@ -216,7 +209,7 @@ def stat_standard_error_mean():
 
 
 @register
-def stat_sample_proportion_ci():
+def stat_sample_proportion_ci(min_n=30, max_n=1500):
     r"""Confidence Interval for a Proportion
 
     | Ex. Problem | Ex. Solution |
@@ -227,7 +220,7 @@ def stat_sample_proportion_ci():
     """
     p = random.choice([0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9])
     z = random.choice([1.645, 1.96, 2.576])
-    n = random.randint(30, 1500)
+    n = random.randint(min_n, max_n)
 
     moe = z * math.sqrt(p * (1 - p) / n)
     low = p - moe
@@ -243,7 +236,7 @@ def stat_sample_proportion_ci():
 
 
 @register
-def stat_relative_frequency():
+def stat_relative_frequency(max_count=20):
     r"""Relative Frequency
 
     | Ex. Problem | Ex. Solution |
@@ -253,7 +246,7 @@ def stat_relative_frequency():
     Relative frequency = category count / total count, as a reduced fraction.
     """
     k = random.choice([3, 4, 5])
-    counts = [random.randint(1, 20) for _ in range(k)]
+    counts = [random.randint(1, max_count) for _ in range(k)]
     index = random.randint(0, k - 1)  # 0-based
     count = counts[index]
     total = sum(counts)
