@@ -148,8 +148,12 @@
     cursor: not-allowed;
 }
 
-.math-problem-submit-incorrect {
+/* The incorrect flash must stay red even though the input has been cleared
+   (which disables the button); this outranks the greyed-out :disabled style. */
+.math-problem-submit-incorrect,
+.math-problem-submit-incorrect:disabled {
     background: #dc2626;
+    cursor: pointer;
     animation: math-problem-submit-shake 0.4s ease;
 }
 

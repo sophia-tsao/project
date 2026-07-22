@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 
 from django.http import JsonResponse
@@ -6,11 +7,23 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from ..models import Topic, Settings, DailyDeck
+from ..models import Topic, Settings, DailyDeck, TopicReview, DailyTopicGrade
 from .common import _require_auth
-from .problems import _make_problem
+from .problems import _make_problem_for_topic
+from .. import srs
 
 logger = logging.getLogger(__name__)
+
+# Map an answer outcome to an SM-2 quality grade (0-5). The client reports which
+# of these happened when it advances past a card.
+#   correct_first  -> 5  (recalled cleanly)
+#   correct_second -> 3  (correct, but only on the second attempt: hard)
+#   incorrect      -> 1  (failed both attempts: a lapse)
+_OUTCOME_QUALITY = {
+    "correct_first": 5,
+    "correct_second": 3,
+    "incorrect": 1,
+}
 
 
 def _client_today(request):
@@ -37,22 +50,176 @@ def _client_today(request):
     return timezone.localdate()
 
 
-def _build_deck(user, count):
-    """Generate up to `count` problems. Returns a list (possibly empty)."""
-    problems = []
-    for _ in range(count):
-        problem = _make_problem(user)
-        if problem is None:
-            break
-        problems.append(problem)
-    return problems
-
-
 def _has_topics(user):
     """True if the user currently has at least one usable topic selected."""
     return Topic.objects.filter(
         selections__user=user, generator_name__isnull=False
     ).exists()
+
+
+def _ordered_topics(user, today):
+    """The user's selected, usable topics ordered by spaced-repetition priority.
+
+    This is the one place that decides the *order* topics are reviewed in; the
+    deck helpers route through it so the ordering rule lives in a single,
+    testable spot. It reads the SM-2 schedule (each topic's
+    `TopicReview.due_date`, written by the grading step) but never computes it —
+    scheduling math lives in myapp.srs.
+
+    A single sort on each topic's effective due date yields the whole policy:
+
+    - Due first, most overdue first (Option A). A topic never reviewed has no
+      `TopicReview` row; it's treated as due today, so new topics enter the
+      rotation promptly rather than being deferred.
+    - Next-soonest after that (Option 2). Not-yet-due topics have a future
+      `due_date`, so they sort after everything already due — they're only
+      reached once the due topics run out.
+
+    Ties break by topic id for a stable, deterministic order (no reliance on DB
+    row order). Returns every usable selected topic (a Topic list, possibly
+    empty); callers slice or cycle it to the size they need.
+    """
+    topics = list(
+        Topic.objects.filter(selections__user=user, generator_name__isnull=False)
+    )
+    reviews = {
+        r.topic_id: r
+        for r in TopicReview.objects.filter(user=user, topic__in=topics)
+    }
+
+    def effective_due(topic):
+        # No review row (never practiced) or no due date => due today, so new
+        # topics sort in with today's due items rather than being deferred.
+        review = reviews.get(topic.id)
+        if review is None or review.due_date is None:
+            return today
+        return review.due_date
+
+    topics.sort(key=lambda t: (effective_due(t), t.id))
+    return topics
+
+
+def _select_deck_topics(user, today, count, exclude=()):
+    """The next `count` distinct topics to review, in due order, skipping `exclude`.
+
+    A thin slice over `_ordered_topics`. `exclude` is a set/iterable of topic
+    ids already in the deck, so callers topping up a deck get *fresh* topics
+    first (variety before repeats). Returns 0..count Topic objects; empty only
+    when the user has no usable topic selected outside `exclude`.
+    """
+    if count <= 0:
+        return []
+    exclude = set(exclude)
+    return [t for t in _ordered_topics(user, today) if t.id not in exclude][:count]
+
+
+def _deck_topic_ids(deck):
+    """Source topic ids of a deck's stored problems, skipping any that lack one.
+
+    Problems stored before topic attribution was added (or by a client that
+    predates it) have no `topic_id`; they're simply omitted rather than crashing
+    a top-up. The result is used only to prefer fresh topics when topping up, so
+    a missing id degrades to "might repeat this topic", never an error.
+    """
+    return [p["topic_id"] for p in deck.problems if "topic_id" in p]
+
+
+def _generate_problems(user, count, today, existing=()):
+    """Generate exactly `count` problems for the deck, filling by due order.
+
+    Distinct topics come first, most-due first (so a fresh or topped-up deck has
+    as much variety as the user's topic set allows). When there are fewer usable
+    topics than `count`, topics repeat — cycling in the same due order — so the
+    deck always reaches `questions_per_day` regardless of how many topics are
+    selected. `existing` is the topic ids already in the deck; those topics are
+    placed last within a cycle, so a top-up adds new topics before repeating any.
+
+    Each problem records its source topic id (see `_make_problem_for_topic`), so
+    a repeated topic yields a different generated problem but is still
+    attributable for scheduling. Returns a list of up to `count` problems; fewer
+    only if no topics are usable (empty) or every candidate topic's generator is
+    broken.
+    """
+    if count <= 0:
+        return []
+    ordered = _ordered_topics(user, today)
+    if not ordered:
+        return []
+    # Prefer topics not already in the deck, preserving due order within each
+    # group, so top-ups add variety before repeating.
+    existing = set(existing)
+    fresh = [t for t in ordered if t.id not in existing]
+    repeats = [t for t in ordered if t.id in existing]
+    rotation = fresh + repeats
+
+    problems = []
+    i = 0
+    # Cap total attempts so a topic set whose generators are all broken can't
+    # loop forever; 2x gives every topic a couple of tries.
+    max_attempts = max(count, len(rotation)) * 2
+    attempts = 0
+    while len(problems) < count and attempts < max_attempts:
+        topic = rotation[i % len(rotation)]
+        i += 1
+        attempts += 1
+        problem = _make_problem_for_topic(topic)
+        if problem is not None:
+            problems.append(problem)
+    return problems
+
+
+def _grade_topic(user, topic_id, outcome, today):
+    """Apply an answer outcome to a topic's SM-2 schedule (once-per-day rule).
+
+    `outcome` is one of the keys in `_OUTCOME_QUALITY`; anything else is ignored
+    (defensive against a malformed client report). Implements the grading rule:
+    the first answer for a topic each day sets the schedule, later repeats may
+    only pull it down.
+
+    The rule is applied by recomputing from a fixed base. On the first grade of
+    the day we snapshot the topic's SM-2 state and remember the quality applied.
+    On a repeat we take min(previously-applied quality, this quality): if it's
+    not lower, nothing changes (a passing repeat can't raise the schedule); if it
+    is lower, we recompute the TopicReview from the *snapshot* with the worse
+    quality. Recomputing from the snapshot (rather than the current state) means
+    repeated misses don't compound — the day's net effect is always one SM-2
+    update from a single base.
+    """
+    quality = _OUTCOME_QUALITY.get(outcome)
+    if quality is None:
+        return
+
+    review, _ = TopicReview.objects.get_or_create(user=user, topic_id=topic_id)
+    grade = DailyTopicGrade.objects.filter(
+        user=user, topic_id=topic_id, date=today
+    ).first()
+
+    if grade is None:
+        # First occurrence today: snapshot the pre-grade state, then apply.
+        base = (review.ease, review.interval, review.repetitions)
+        DailyTopicGrade.objects.create(
+            user=user, topic_id=topic_id, date=today,
+            applied_quality=quality,
+            snapshot_ease=base[0], snapshot_interval=base[1], snapshot_repetitions=base[2],
+        )
+    else:
+        # Repeat today: only a strictly worse grade changes anything.
+        if quality >= grade.applied_quality:
+            return
+        base = (grade.snapshot_ease, grade.snapshot_interval, grade.snapshot_repetitions)
+        grade.applied_quality = quality
+        grade.save(update_fields=["applied_quality"])
+
+    ease, interval, repetitions = srs.update(base[0], base[1], base[2], quality)
+    review.ease = ease
+    review.interval = interval
+    review.repetitions = repetitions
+    review.due_date = today + datetime.timedelta(days=interval)
+    review.save(update_fields=["ease", "interval", "repetitions", "due_date"])
+    logger.info(
+        "Graded topic %s for user %s: q=%d -> interval=%d, due %s",
+        topic_id, user.id, quality, interval, review.due_date,
+    )
 
 
 def _get_or_create_today_deck(user, today):
@@ -74,7 +241,7 @@ def _get_or_create_today_deck(user, today):
     if deck is None:
         # A new day: clear out this user's stale decks and build a fresh one.
         DailyDeck.objects.filter(user=user).exclude(date=today).delete()
-        problems = _build_deck(user, settings.questions_per_day)
+        problems = _generate_problems(user, settings.questions_per_day, today)
         logger.info(
             "Built new deck for user %s with %d/%d problems",
             user.id, len(problems), settings.questions_per_day,
@@ -84,7 +251,8 @@ def _get_or_create_today_deck(user, today):
         )
     missing = settings.questions_per_day - len(deck.problems)
     if missing > 0:
-        extra = _build_deck(user, missing)
+        existing = _deck_topic_ids(deck)
+        extra = _generate_problems(user, missing, today, existing=existing)
         if extra:
             deck.problems = deck.problems + extra
             deck.save(update_fields=["problems"])
@@ -110,7 +278,8 @@ def _grow_today_deck(user, count, today):
     missing = count - len(deck.problems)
     if missing <= 0:
         return
-    extra = _build_deck(user, missing)
+    existing = _deck_topic_ids(deck)
+    extra = _generate_problems(user, missing, today, existing=existing)
     if extra:
         deck.problems = deck.problems + extra
         deck.save(update_fields=["problems"])
@@ -152,7 +321,7 @@ def _regenerate_deck_tail(user, today):
     remaining = target - answered
     if remaining <= 0:
         return
-    new_tail = _build_deck(user, remaining)
+    new_tail = _generate_problems(user, remaining, today)
     if not new_tail:
         # No topics currently selected — can't regenerate. Preserve the deck
         # rather than truncating away its unanswered tail.
@@ -223,6 +392,11 @@ def advance_deck(request):
     When there's no deck for today yet, treat the advance as a no-op and just
     report the freshly-built deck (get_or_create at index 0), so that stray
     advance lands the student on card 1.
+
+    The optional JSON body `{"outcome": "correct_first"|"correct_second"|
+    "incorrect"}` reports how the card being left was answered; it updates that
+    card's topic's SM-2 schedule (see `_grade_topic`). It's optional so a stray
+    advance with no answer (the midnight-rollover case) simply doesn't grade.
     """
     auth = _require_auth(request)
     if auth:
@@ -231,6 +405,14 @@ def advance_deck(request):
     existing = DailyDeck.objects.filter(user=request.user, date=today).first()
     deck = _get_or_create_today_deck(request.user, today)
     if existing is not None and deck.current_index < len(deck.problems):
+        # Grade the card being left before stepping past it. Only a real,
+        # existing deck advance grades — a stray advance that just built today's
+        # deck (current_index 0, nothing answered) must not.
+        outcome = _advance_outcome(request)
+        card = deck.problems[deck.current_index]
+        topic_id = card.get("topic_id")
+        if outcome and topic_id is not None:
+            _grade_topic(request.user, topic_id, outcome, today)
         deck.current_index += 1
         deck.save(update_fields=["current_index"])
         logger.debug(
@@ -238,3 +420,19 @@ def advance_deck(request):
             request.user.id, deck.current_index, len(deck.problems),
         )
     return JsonResponse(_deck_payload(request.user, deck))
+
+
+def _advance_outcome(request):
+    """The reported answer outcome from an advance request body, or None.
+
+    Tolerant by design: a missing/empty/malformed body (or missing key) yields
+    None so the advance still proceeds ungraded. Validation of the value itself
+    happens in `_grade_topic`.
+    """
+    if not request.body:
+        return None
+    try:
+        return json.loads(request.body).get("outcome")
+    except (ValueError, AttributeError):
+        logger.warning("Ignoring malformed advance body for user %s", request.user.id)
+        return None

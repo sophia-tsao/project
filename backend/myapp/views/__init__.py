@@ -3,7 +3,7 @@
 This package used to be a single ``views.py``. It's kept importable as
 ``myapp.views`` with the same public surface, so ``urls.py`` and the test
 suite need no changes. New code should import from the specific submodule
-(e.g. ``from myapp.views.deck import _build_deck``); the re-exports below
+(e.g. ``from myapp.views.deck import _generate_problems``); the re-exports below
 exist for backwards compatibility.
 """
 
