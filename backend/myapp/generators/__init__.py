@@ -23,6 +23,7 @@ from . import (  # noqa: F401,E402
     geometry_hs,
     prealgebra,
     precalculus,
+    sets_gen,
     statistics_gen,
 )
 

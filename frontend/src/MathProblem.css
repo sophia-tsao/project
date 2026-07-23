@@ -94,6 +94,22 @@
     letter-spacing: 0.04em;
 }
 
+/* A pill badge echoing the brand-blue, uppercase, letter-spaced treatment of
+   the meta labels above, so the topic reads as an on-brand category tag rather
+   than a plain heading. */
+.math-problem-topic {
+    align-self: center;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.1);
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
 .math-problem-display {
     font-size: 17px;
     font-weight: 600;

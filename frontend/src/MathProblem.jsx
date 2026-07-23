@@ -62,6 +62,7 @@ function Confetti() {
 
 function MathProblem() {
   const [problem, setProblem] = useState(null);
+  const [topicName, setTopicName] = useState(null);
   const [solution, setSolution] = useState(null);
   const [currentNumber, setCurrentNumber] = useState(null);
   const [total, setTotal] = useState(null);
@@ -104,6 +105,7 @@ function MathProblem() {
     }
     log.debug(`Showing question ${result.current_number} of ${result.total}`);
     setProblem(result.problem);
+    setTopicName(result.topic_name ?? null);
     setSolution(result.solution?.replace(/\$/g, ''));
     setCurrentNumber(result.current_number);
     setTotal(result.total);
@@ -252,6 +254,7 @@ function MathProblem() {
             <span className="math-problem-progress">{currentNumber} of {total} questions</span>
             <span className="math-problem-attempt">Attempt {attempt} of {MAX_ATTEMPTS}</span>
           </div>
+          {topicName && <span className="math-problem-topic">{topicName}</span>}
           <MathProblemDisplay problem={renderMixedLatex(problem)} />
           <MathProblemResponse solution={solution} onCorrect={handleCorrect} onIncorrect={handleIncorrect} />
         </div>

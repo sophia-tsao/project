@@ -448,9 +448,24 @@ def _deck_payload(user, deck):
     return {
         "problem": current["problem"],
         "solution": current["solution"],
+        "topic_name": _topic_name(current.get("topic_id")),
         "current_number": deck.current_index + 1,
         "total": total,
     }
+
+
+def _topic_name(topic_id):
+    """Resolve a stored problem's topic id to its display name, or None.
+
+    Problems store only `topic_id` (not the name), so the card's topic label is
+    looked up here at display time — which also keeps it current if a topic is
+    renamed. Returns None when the id is missing (problems stored before topic
+    attribution) or the topic no longer exists, so the client simply omits the
+    label rather than showing a stale or broken one.
+    """
+    if topic_id is None:
+        return None
+    return Topic.objects.filter(id=topic_id).values_list("topic_name", flat=True).first()
 
 
 @csrf_exempt

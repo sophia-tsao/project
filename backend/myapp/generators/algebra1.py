@@ -230,3 +230,33 @@ def alg1_linear_inequality_solve(max_a=6, min_bc=-10, max_bc=10):
     )
     solution = f"$x {ascii_op} {_fmt_frac(threshold)}$"
     return problem, solution
+
+
+@register
+def factoring(max_root=9):
+    r"""Factoring Quadratic
+
+    | Ex. Problem | Ex. Solution |
+    | --- | --- |
+    | Factor the quadratic $x^2+2x-48$. | $(x-6)(x+8)$ |
+
+    Overrides the stock ``mathgenerator`` ``factoring`` generator, which returns
+    the bare expression with no instruction (so a student can't tell what to
+    do). We build a monic quadratic from two integer roots and ask explicitly to
+    factor it. The two binomials are ordered by their constant term (ascending)
+    so the exact-match answer box has one canonical, stated form to expect.
+    """
+    # Roots -r1, -r2 (nonzero so both binomials are genuine, e.g. no bare "x").
+    r1 = random.choice([n for n in range(-max_root, max_root + 1) if n != 0])
+    r2 = random.choice([n for n in range(-max_root, max_root + 1) if n != 0])
+    p, q = sorted((r1, r2))  # constant terms; ascending for a canonical order
+    b = p + q
+    c = p * q
+
+    problem = (
+        f"Factor the quadratic ${_quadratic(1, b, c)}$. "
+        f"Write your answer as (x+a)(x+b), with the two factors ordered by "
+        f"their constant term from least to greatest."
+    )
+    solution = f"$(x{_signed(p)})(x{_signed(q)})$"
+    return problem, solution

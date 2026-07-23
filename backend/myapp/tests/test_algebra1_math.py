@@ -247,3 +247,33 @@ def _parse_quad(text):
     else:
         c = int(m.group("cmag")) if m.group("csign") == "+" else -int(m.group("cmag"))
     return a, b, c
+
+
+class FactoringTests(TestCase):
+    """The stated factorization must expand back to the quadratic in the prompt,
+    and its two binomials must be ordered by constant term (least to greatest),
+    as the problem instructs — the answer box matches the string exactly."""
+
+    PROBLEM = re.compile(r"Factor the quadratic \$(?P<quad>[^$]+)\$")
+    SOLUTION = re.compile(r"^\$\(x(?P<p>[+-]\d+)\)\(x(?P<q>[+-]\d+)\)\$$")
+
+    def test_factors_expand_to_quadratic(self):
+        random.seed(0)
+        gen = LOCAL_GENERATORS["factoring"]
+        for _ in range(SAMPLES):
+            problem, solution = gen()
+            pm = self.PROBLEM.search(problem)
+            self.assertIsNotNone(pm, f"could not parse problem: {problem!r}")
+            a, b, c = _parse_quad(pm.group("quad"))
+            self.assertEqual(a, 1, f"expected monic quadratic: {problem!r}")
+
+            sm = self.SOLUTION.match(solution)
+            self.assertIsNotNone(sm, f"unexpected solution form: {solution!r}")
+            p = int(sm.group("p"))
+            q = int(sm.group("q"))
+
+            # (x+p)(x+q) = x^2 + (p+q)x + pq must match the prompt's b, c.
+            self.assertEqual(p + q, b, f"middle term wrong: {problem!r} -> {solution!r}")
+            self.assertEqual(p * q, c, f"constant term wrong: {problem!r} -> {solution!r}")
+            # Canonical order: constant terms ascending.
+            self.assertLessEqual(p, q, f"factors not ordered: {solution!r}")
