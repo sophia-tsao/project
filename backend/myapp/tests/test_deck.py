@@ -11,7 +11,9 @@ from unittest import mock
 
 from django.test import TestCase, Client
 
-from myapp.models import DailyDeck, Settings, TopicReview, DailyTopicGrade
+from myapp.models import (
+    DailyDeck, Settings, Topic, TopicReview, DailyTopicGrade, UserTopicSelection,
+)
 from myapp import views
 from myapp.views.deck import _select_deck_topics, _generate_problems, _grade_topic
 from .factories import make_user, make_course, make_topic, select
@@ -184,6 +186,37 @@ class DeckTests(TestCase):
         self.assertFalse(data.get("completed"))
         self.assertEqual(data["current_number"], 1)
         self.assertEqual(data["total"], 3)
+        deck = DailyDeck.objects.get(user=self.user, date=datetime.date(2026, 7, 20))
+        self.assertEqual(deck.current_index, 0)
+
+    @mock.patch("myapp.views.mathgenerator.addition", return_value=("$1+1=$", "$2$"))
+    def test_new_day_get_then_stray_advance_stays_on_card_one(self, mock_gen):
+        # The real new-day sequence: the SPA mounts and GETs the deck (building
+        # a fresh one at index 0), and *then* a leftover advance timer from
+        # finishing yesterday's last card fires. That stray advance must not
+        # step the fresh deck to card 2 — the student answered nothing today.
+        select(self.user, self.topic)
+        Settings.objects.update_or_create(
+            user=self.user, defaults={"questions_per_day": 3}
+        )
+        # Finish yesterday's deck.
+        self.client.get("/deck/?today=2026-07-19")
+        for _ in range(3):
+            self.client.post("/deck/advance/?today=2026-07-19")
+
+        # New day: GET builds the fresh deck at card 1...
+        got = self.client.get("/deck/?today=2026-07-20").json()
+        self.assertEqual(got["current_number"], 1)
+        # ...then the stray advance timer fires. It was scheduled while the
+        # student was finishing yesterday's last card (card 3), so it carries
+        # from_number=3, which no longer matches the fresh deck on card 1. The
+        # backend must ignore it and leave the student on card 1.
+        advanced = self.client.post(
+            "/deck/advance/?today=2026-07-20",
+            data=json.dumps({"outcome": "correct_first", "from_number": 3}),
+            content_type="application/json",
+        ).json()
+        self.assertEqual(advanced["current_number"], 1)
         deck = DailyDeck.objects.get(user=self.user, date=datetime.date(2026, 7, 20))
         self.assertEqual(deck.current_index, 0)
 
@@ -592,3 +625,59 @@ class AdvanceGradingTests(TestCase):
             content_type="application/json",
         )
         self.assertFalse(TopicReview.objects.filter(user=self.user).exists())
+
+
+class PruneOrphanedTopicsTests(TestCase):
+    """The 0010 migration must delete topics no longer in the seed and purge
+    their frozen cards from cached decks, keeping the student on the same
+    remaining card. A topic removed from the seed used to linger in the DB,
+    still selected and still served from cached decks — that's how untypeable
+    matrix/complex answers kept surfacing, and how a user with only removed
+    topics selected still saw cards while the Courses page showed nothing."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.course = make_course()
+
+    def test_orphaned_topic_and_its_cards_are_removed(self):
+        # `addition` is in the seed (valid); a made-up name is not (orphaned).
+        valid = make_topic(self.course, topic_name="Addition of two numbers",
+                            generator_name="addition")
+        orphan = make_topic(self.course, topic_name="Old Matrix Topic",
+                            generator_name="matrix_multiplication_removed")
+        select(self.user, valid)
+        select(self.user, orphan)
+
+        # A cached deck interleaving valid and orphaned cards, cursor at index 2.
+        DailyDeck.objects.create(
+            user=self.user,
+            date=datetime.date(2026, 7, 22),
+            current_index=2,
+            problems=[
+                {"problem": "v0", "solution": "1", "topic_id": valid.id},
+                {"problem": "orphan1", "solution": r"\begin{bmatrix}1\end{bmatrix}",
+                 "topic_id": orphan.id},
+                {"problem": "v1", "solution": "2", "topic_id": valid.id},
+                {"problem": "orphan2", "solution": r"\frac{1}{2}", "topic_id": orphan.id},
+            ],
+        )
+
+        from django.apps import apps
+        import importlib
+        migration = importlib.import_module(
+            "myapp.migrations.0010_prune_orphaned_topics"
+        )
+        migration.prune_orphaned_topics(apps, None)
+
+        # Orphaned topic and its selection are gone; valid topic remains.
+        self.assertFalse(Topic.objects.filter(id=orphan.id).exists())
+        self.assertTrue(Topic.objects.filter(id=valid.id).exists())
+        self.assertFalse(
+            UserTopicSelection.objects.filter(topic_id=orphan.id).exists()
+        )
+
+        # The cached deck keeps only the valid cards, and the cursor shifts back
+        # by the one orphaned card that sat before it (index 2 -> 1).
+        deck = DailyDeck.objects.get(user=self.user)
+        self.assertEqual([p["problem"] for p in deck.problems], ["v0", "v1"])
+        self.assertEqual(deck.current_index, 1)

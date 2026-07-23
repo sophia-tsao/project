@@ -133,11 +133,20 @@ function MathProblem() {
   // 'correct_second' | 'incorrect') so the backend can update that topic's
   // spaced-repetition schedule. Omitted for a stray advance with no answer
   // (e.g. the midnight day-rollover advance), which must not grade anything.
-  const advanceDeck = useCallback(async (outcome) => {
+  // `fromNumber` is the 1-based card the advance is leaving, captured at the
+  // moment the advance is initiated (a click, or when a timer is scheduled).
+  // The backend ignores an advance whose `from_number` no longer matches the
+  // card it's showing, so a stray leftover timer — e.g. the correct-answer
+  // timer from finishing yesterday's last card, firing after the deck has
+  // rolled over to today's card 1 — can't step the fresh deck past card 1.
+  const advanceDeck = useCallback(async (outcome, fromNumber) => {
     try {
+      const body = {};
+      if (typeof outcome === 'string') body.outcome = outcome;
+      if (typeof fromNumber === 'number') body.from_number = fromNumber;
       const response = await apiFetch(`/deck/advance/?today=${localDay()}`, {
         method: 'POST',
-        ...(typeof outcome === 'string' ? { body: JSON.stringify({ outcome }) } : {}),
+        ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
       });
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -161,9 +170,14 @@ function MathProblem() {
   // The deck resets at the start of each day, but the SPA can sit open across
   // midnight (a student leaves the tab up overnight). Fetching only on mount
   // would leave them staring at yesterday's deck — usually the "come back
-  // tomorrow" completion screen. When the tab is shown again (or refocused),
-  // reload if the local day has rolled over so the backend can hand back the
-  // fresh deck it already builds for the new day.
+  // tomorrow" completion screen. Reload when the local day has rolled over so
+  // the backend can hand back the fresh deck it already builds for the new day.
+  //
+  // Three triggers, because no single one covers every case: refocus and
+  // visibility handle a tab that was backgrounded across midnight, and a
+  // periodic timer handles a tab that stays focused the whole time (e.g. left
+  // open on-screen), which would otherwise never re-check and keep showing
+  // yesterday's card.
   useEffect(() => {
     const reloadIfNewDay = () => {
       const today = localDay();
@@ -178,9 +192,13 @@ function MathProblem() {
     };
     window.addEventListener('focus', reloadIfNewDay);
     document.addEventListener('visibilitychange', onVisible);
+    // Catch a rollover even while the tab stays focused and untouched. A minute
+    // is plenty prompt for a day boundary and negligible overhead.
+    const interval = setInterval(reloadIfNewDay, 60 * 1000);
     return () => {
       window.removeEventListener('focus', reloadIfNewDay);
       document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(interval);
     };
   }, [fetchDeck]);
 
@@ -192,23 +210,41 @@ function MathProblem() {
   const handleCorrect = () => {
     // A first-attempt correct answer grades higher than a second-attempt one.
     const outcome = attempt === 1 ? 'correct_first' : 'correct_second';
+    // Capture the card being answered *now*, so if this timer somehow fires
+    // after a day-rollover reload, its stale from_number won't match the fresh
+    // deck and the backend will ignore it (leaving the student on card 1).
+    const from = currentNumber;
     setResult('correct');
     setFlipped(true);
-    setTimeout(() => advanceDeck(outcome), 1400);
+    setTimeout(() => advanceDeck(outcome, from), 1400);
   };
 
   const handleIncorrect = () => {
     if (attempt < MAX_ATTEMPTS) {
       setAttempt(attempt + 1);
     } else {
-      // Out of attempts: flip to show the correct answer, then move on.
+      // Out of attempts: flip to show the correct answer. Unlike the correct
+      // face (which auto-advances), the incorrect face waits for the student to
+      // act — either accepting the miss ("Continue") or overriding it ("I got
+      // this correct") if the answer box wrongly marked a correct answer wrong.
+      // A timed auto-advance would give no time to read the answer or override.
       // Freeze the answer on the back face so it isn't replaced by the next
       // problem's solution while the card rotates back to the front.
       setResult('incorrect');
       setResultAnswer(solution);
       setFlipped(true);
-      setTimeout(() => advanceDeck('incorrect'), 1400);
     }
+  };
+
+  // From the incorrect back face: accept the miss and move on.
+  const handleAcceptIncorrect = () => advanceDeck('incorrect', currentNumber);
+
+  // From the incorrect back face: the student says the answer box wrongly
+  // marked them wrong. Override to a clean correct grade (full credit).
+  const handleOverrideCorrect = () => {
+    log.info('Student overrode an incorrect grade to correct');
+    setResult('correct');
+    advanceDeck('correct_first', currentNumber);
   };
 
   if (error) return <div>Error: {error}</div>;
@@ -271,6 +307,20 @@ function MathProblem() {
               </svg>
               <span className="math-problem-incorrect-text">Incorrect...</span>
               <span className="math-problem-answer">The answer is {resultAnswer}</span>
+              <div className="math-problem-back-actions">
+                <button
+                  className="math-problem-back-button math-problem-back-continue"
+                  onClick={handleAcceptIncorrect}
+                >
+                  Continue
+                </button>
+                <button
+                  className="math-problem-back-button math-problem-back-override"
+                  onClick={handleOverrideCorrect}
+                >
+                  I got this correct
+                </button>
+              </div>
             </>
           ) : (
             <>

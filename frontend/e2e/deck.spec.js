@@ -68,8 +68,26 @@ test.describe('daily deck', () => {
     await expect(page.locator('.math-problem-attempt')).toContainText('Attempt 2 of 2');
     await expect(page.locator('.math-problem-progress')).toContainText('1 of');
 
-    // Second wrong attempt: out of attempts, advance to question 2.
+    // Second wrong attempt: out of attempts, the card flips to reveal the
+    // answer and waits. Clicking Continue accepts the miss and advances.
     await answerProblem(page, solutions.current, { correct: false });
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.locator('.math-problem-progress')).toContainText('2 of');
+  });
+
+  test('overriding an incorrect answer advances to the next question', async ({ page }) => {
+    await resetUser(page);
+    await selectFirstCourse(page);
+    const solutions = trackSolutions(page);
+
+    await page.goto('/#/math');
+    await expect(page.locator('.math-problem-progress')).toContainText('1 of');
+
+    // Burn both attempts, then override the miss via "I got this correct".
+    await answerProblem(page, solutions.current, { correct: false });
+    await expect(page.locator('.math-problem-attempt')).toContainText('Attempt 2 of 2');
+    await answerProblem(page, solutions.current, { correct: false });
+    await page.getByRole('button', { name: 'I got this correct' }).click();
     await expect(page.locator('.math-problem-progress')).toContainText('2 of');
   });
 

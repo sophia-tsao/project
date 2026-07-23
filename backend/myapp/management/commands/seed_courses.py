@@ -179,6 +179,7 @@ CURRICULUM = [
         "Z-Score of a Data Value",
         "Empirical Rule (68-95-99.7)",
         "Solve a 2x2 Linear System",
+        "Union, Intersection, Difference of Two Sets",
     ]),
     ("Statistical Reasoning", 12, [
         "Mean, Standard Deviation and Variance",

@@ -89,6 +89,34 @@ describe('MathProblem — day rollover', () => {
     expect(apiFetch).toHaveBeenLastCalledWith('/deck/?today=2026-07-21');
   });
 
+  it('reloads on the interval when the day rolls over while the tab stays focused', async () => {
+    // A tab left open and focused across midnight never fires focus/visibility,
+    // so the periodic timer is the only thing that catches the rollover.
+    vi.useFakeTimers();
+    try {
+      apiFetch
+        .mockResolvedValueOnce(deckResponse({ completed: true, total: 3 }))
+        .mockResolvedValueOnce(deckResponse(ACTIVE_DECK));
+
+      render(<MathProblem />);
+      await vi.waitFor(() =>
+        expect(screen.getByText(/You've finished all 3 questions for today/)).toBeInTheDocument(),
+      );
+      expect(apiFetch).toHaveBeenCalledTimes(1);
+
+      // Midnight passes with no focus/visibility event; the timer fires.
+      localDay.mockReturnValue('2026-07-21');
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+
+      await vi.waitFor(() =>
+        expect(apiFetch).toHaveBeenLastCalledWith('/deck/?today=2026-07-21'),
+      );
+      expect(apiFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not reload on refocus within the same day', async () => {
     apiFetch.mockResolvedValueOnce(deckResponse(ACTIVE_DECK));
 
@@ -127,10 +155,11 @@ describe('MathProblem — answering', () => {
     // The advance is triggered by a real 900ms setTimeout, so allow headroom.
     expect(await screen.findByText('2 of 3 questions', {}, { timeout: 2000 })).toBeInTheDocument();
     // A first-attempt correct answer is reported as 'correct_first' so the
-    // backend can update the topic's spaced-repetition schedule.
+    // backend can update the topic's spaced-repetition schedule. `from_number`
+    // is the card being left (card 1) so a stale/stray advance can be rejected.
     expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
       method: 'POST',
-      body: JSON.stringify({ outcome: 'correct_first' }),
+      body: JSON.stringify({ outcome: 'correct_first', from_number: 1 }),
     });
   });
 
@@ -148,7 +177,7 @@ describe('MathProblem — answering', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('advances after exhausting all attempts', async () => {
+  it('advances after exhausting all attempts and clicking Continue', async () => {
     apiFetch
       .mockResolvedValueOnce(deckResponse(ACTIVE_DECK))
       .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, current_number: 2 }));
@@ -162,21 +191,51 @@ describe('MathProblem — answering', () => {
     await user.click(button); // attempt 1 -> 2
     await screen.findByText('Attempt 2 of 2');
     await user.type(input, '98');
-    await user.click(button); // attempt 2 exhausted -> flip, then advance
+    await user.click(button); // attempt 2 exhausted -> flip (no auto-advance)
 
     // The card flips to reveal the correct answer on its back...
     expect(screen.getByText('Incorrect...')).toBeInTheDocument();
     expect(screen.getByText('The answer is 4')).toBeInTheDocument();
+    // ...and waits — no advance until the student acts.
+    expect(apiFetch).toHaveBeenCalledTimes(1);
 
-    // ...then advances once the 1400ms flip has been read. Allow headroom.
-    // Two wrong attempts are reported as 'incorrect' (a lapse) to the backend.
-    await waitFor(
-      () =>
-        expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
-          method: 'POST',
-          body: JSON.stringify({ outcome: 'incorrect' }),
-        }),
-      { timeout: 2500 },
+    // Clicking Continue accepts the miss and advances, reporting 'incorrect'.
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
+        method: 'POST',
+        body: JSON.stringify({ outcome: 'incorrect', from_number: 1 }),
+      }),
+    );
+  });
+
+  it('overrides an incorrect grade to correct via "I got this correct"', async () => {
+    apiFetch
+      .mockResolvedValueOnce(deckResponse(ACTIVE_DECK))
+      .mockResolvedValueOnce(deckResponse({ ...ACTIVE_DECK, current_number: 2 }));
+    const user = userEvent.setup();
+    render(<MathProblem />);
+    await screen.findByText('1 of 3 questions');
+
+    const input = screen.getByRole('textbox');
+    const button = screen.getByRole('button');
+    await user.type(input, '99');
+    await user.click(button); // attempt 1 -> 2
+    await screen.findByText('Attempt 2 of 2');
+    await user.type(input, '98');
+    await user.click(button); // exhausted -> flip to "Incorrect..."
+
+    expect(screen.getByText('Incorrect...')).toBeInTheDocument();
+    expect(apiFetch).toHaveBeenCalledTimes(1); // still waiting on the student
+
+    // The student asserts the answer box was wrong; override grants full credit
+    // ('correct_first'), the same grade a clean first-try correct answer earns.
+    await user.click(screen.getByRole('button', { name: 'I got this correct' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/deck/advance/?today=2026-07-20', {
+        method: 'POST',
+        body: JSON.stringify({ outcome: 'correct_first', from_number: 1 }),
+      }),
     );
   });
 
@@ -204,6 +263,7 @@ describe('MathProblem — answering', () => {
     await user.click(button); // exhausted -> flip to "Incorrect..."
 
     expect(screen.getByText('Incorrect...')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     // Advance loads the next problem; the back face must not flash "Correct!".
     await screen.findByText('2 of 3 questions', {}, { timeout: 2500 });
@@ -233,6 +293,7 @@ describe('MathProblem — answering', () => {
     await user.click(button); // exhausted -> flip showing "The answer is 4"
 
     expect(screen.getByText('The answer is 4')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     // After the next problem (solution '7') loads, the back face must still
     // show '4' — never '7'.

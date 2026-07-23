@@ -27,4 +27,20 @@ from . import (  # noqa: F401,E402
     statistics_gen,
 )
 
+# Local overrides of broken stock ``mathgenerator`` generators. Each module
+# registers generators whose names match a library generator, so they take
+# precedence in ``_make_problem_for_topic`` (which resolves LOCAL_GENERATORS
+# first). They fix untypeable answers, missing format/rounding instructions,
+# broken rendering, and outright wrong answers in the library versions.
+from . import (  # noqa: F401,E402
+    lib_algebra_extra_gen,
+    lib_angles_gen,
+    lib_finance_gen,
+    lib_fractions_gen,
+    lib_geometry_gen,
+    lib_powers_gen,
+    lib_seqstats_gen,
+    lib_solids_gen,
+)
+
 __all__ = ["LOCAL_GENERATORS", "register"]

@@ -506,10 +506,24 @@ def advance_deck(request):
     today = _client_today(request)
     existing = DailyDeck.objects.filter(user=request.user, date=today).first()
     deck = _get_or_create_today_deck(request.user, today)
-    if existing is not None and deck.current_index < len(deck.problems):
-        # Grade the card being left before stepping past it. Only a real,
-        # existing deck advance grades — a stray advance that just built today's
-        # deck (current_index 0, nothing answered) must not.
+
+    # An advance may only step the deck when it's a genuine "I finished the card
+    # I'm looking at" — never a stray leftover timer. Two things must hold:
+    #
+    #  1. The deck already existed before this request. If this advance is what
+    #     built today's deck (a stray advance as the day's first call), there was
+    #     nothing to answer, so it must land the student on card 1, not card 2.
+    #  2. The card the client says it's leaving (`from_number`, 1-based) is the
+    #     one the server currently shows. This is the fix for the real
+    #     new-day bug: the SPA mounts and GETs a fresh deck (card 1), and *then*
+    #     a leftover advance timer from finishing yesterday's last card fires.
+    #     That stray advance still names yesterday's card, which no longer
+    #     matches, so it's ignored and the student stays on card 1. When the
+    #     client sends no position (legacy callers), we don't gate on it.
+    from_number = _advance_from_number(request)
+    position_ok = from_number is None or from_number == deck.current_index + 1
+    if existing is not None and deck.current_index < len(deck.problems) and position_ok:
+        # Grade the card being left before stepping past it.
         outcome = _advance_outcome(request)
         card = deck.problems[deck.current_index]
         topic_id = card.get("topic_id")
@@ -521,20 +535,46 @@ def advance_deck(request):
             "User %s advanced deck to %d/%d",
             request.user.id, deck.current_index, len(deck.problems),
         )
+    elif not position_ok:
+        logger.info(
+            "Ignoring stale advance for user %s: client left card %s but deck is on %d",
+            request.user.id, from_number, deck.current_index + 1,
+        )
     return JsonResponse(_deck_payload(request.user, deck))
+
+
+def _advance_body(request):
+    """Parse the advance request's JSON body into a dict, or {} if absent/bad.
+
+    Tolerant by design: a missing/empty/malformed body yields {} so callers get
+    default (None) values and the advance still proceeds.
+    """
+    if not request.body:
+        return {}
+    try:
+        data = json.loads(request.body)
+        return data if isinstance(data, dict) else {}
+    except ValueError:
+        logger.warning("Ignoring malformed advance body for user %s", request.user.id)
+        return {}
 
 
 def _advance_outcome(request):
     """The reported answer outcome from an advance request body, or None.
 
-    Tolerant by design: a missing/empty/malformed body (or missing key) yields
-    None so the advance still proceeds ungraded. Validation of the value itself
-    happens in `_grade_topic`.
+    A missing/empty/malformed body (or missing key) yields None so the advance
+    still proceeds ungraded. Validation of the value happens in `_grade_topic`.
     """
-    if not request.body:
-        return None
-    try:
-        return json.loads(request.body).get("outcome")
-    except (ValueError, AttributeError):
-        logger.warning("Ignoring malformed advance body for user %s", request.user.id)
-        return None
+    return _advance_body(request).get("outcome")
+
+
+def _advance_from_number(request):
+    """The 1-based card number the client says it's advancing away from, or None.
+
+    Lets `advance_deck` reject a stale/stray advance whose position no longer
+    matches the server's current card (see the new-day rollover case there).
+    Returns None when the client sends no position, so legacy callers that omit
+    it keep advancing unconditionally.
+    """
+    value = _advance_body(request).get("from_number")
+    return value if isinstance(value, int) else None

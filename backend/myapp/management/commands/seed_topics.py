@@ -103,6 +103,7 @@ TOPICS = [
     ("Definite Integral of Quadratic Equation", "definite_integral"),
     ("Trigonometric Differentiation", "trig_differentiation"),
     ("Vertex of a Quadratic in Vertex Form", "vertex_form"),
+    ("Union, Intersection, Difference of Two Sets", "set_operation"),
     # --- Solveki-local generators added to close Georgia 2023 curriculum gaps ---
     # Grades 1-5 (arithmetic)
     ("Place Value", "arith_place_value"),
